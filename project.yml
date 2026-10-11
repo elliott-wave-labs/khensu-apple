@@ -73,6 +73,11 @@ targets:
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+      configs:
+        # Debug builds load KhensuKit as an ad-hoc-signed package framework, which
+        # library validation would reject on macOS.
+        Debug:
+          ENABLE_HARDENED_RUNTIME: NO
 
   NotificationService:
     type: app-extension
@@ -136,6 +141,24 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
 
+  PtahTests:
+    type: bundle.unit-test
+    platform: auto
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: PtahTests
+    dependencies:
+      - target: Ptah
+      - package: KhensuKit
+        product: KhensuKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: nu.khensu.ptah.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/khensu.nu.app/khensu.nu"
+        "TEST_HOST[sdk=macosx*]": "$(BUILT_PRODUCTS_DIR)/khensu.nu.app/Contents/MacOS/khensu.nu"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
 schemes:
   Ptah:
     build:
@@ -145,5 +168,7 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - PtahTests
     archive:
       config: Release
