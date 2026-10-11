@@ -42,9 +42,20 @@ public final class DeviceVault: @unchecked Sendable {
     private let lock = NSLock()
     private var storeKey: SymmetricKey?
 
-    public init(store: any SecretStore, allowSecureEnclave: Bool = true) {
+    /// Whether software keys still ask LocalAuthentication before unlocking.
+    /// Secure Enclave keys always enforce their access control in hardware.
+    private let softwareKeysAuthenticate: Bool
+
+    public init(store: any SecretStore, allowSecureEnclave: Bool = true, softwareKeysAuthenticate: Bool = true) {
         self.store = store
+        self.softwareKeysAuthenticate = softwareKeysAuthenticate
+        #if targetEnvironment(simulator)
+        // The iOS 26 Simulator reports `SecureEnclave.isAvailable` but rejects
+        // post-quantum Secure Enclave keys (LocalAuthentication error -1020).
+        self.hardware = .software
+        #else
         self.hardware = allowSecureEnclave && SecureEnclave.isAvailable ? .secureEnclave : .software
+        #endif
     }
 
     // MARK: Identity key
@@ -119,7 +130,8 @@ public final class DeviceVault: @unchecked Sendable {
         let policy = currentPolicy()
         let context = LAContext()
         context.localizedReason = reason
-        if policy == .biometricsOrPasscode || (policy == .passcodeOnly && tag == 0) {
+        let authenticate = tag == 1 || softwareKeysAuthenticate
+        if authenticate && (policy == .biometricsOrPasscode || (policy == .passcodeOnly && tag == 0)) {
             var error: NSError?
             if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
                 try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)

@@ -10,18 +10,29 @@ import Foundation
 /// carries a 32-byte fingerprint of the identity keys. The full keys arrive with
 /// the first message (or from the key transparency log once it exists) and must
 /// match the fingerprint.
+///
+/// With khensu-core, the invite also carries a one-time contact card (a signed
+/// KeyPackage, base64) in the URL fragment, which browsers never send to a
+/// server. Cards are several kilobytes, so those invites are shared as links.
 public struct ContactInvite: Hashable, Sendable, Codable {
     public let address: Address
     public let displayName: String
     public let handle: Handle?
     public let keyFingerprint: Data
+    public let card: String?
 
-    public init(address: Address, displayName: String, handle: Handle?, keyFingerprint: Data) {
+    public init(address: Address, displayName: String, handle: Handle?, keyFingerprint: Data, card: String? = nil) {
         self.address = address
         self.displayName = displayName
         self.handle = handle
         self.keyFingerprint = keyFingerprint
+        self.card = card
     }
+
+    /// Largest payload a QR code holds reliably at error correction level M.
+    public static let maxQRBytes = 2_300
+
+    public var fitsQRCode: Bool { url.absoluteString.utf8.count <= Self.maxQRBytes }
 
     public init(identity: Identity) {
         self.init(
@@ -47,6 +58,7 @@ public struct ContactInvite: Hashable, Sendable, Codable {
         if let handle { items.append(URLQueryItem(name: "h", value: handle.name)) }
         items.append(URLQueryItem(name: "f", value: keyFingerprint.hex))
         c.queryItems = items
+        c.fragment = card
         return c.url!
     }
 
@@ -63,7 +75,8 @@ public struct ContactInvite: Hashable, Sendable, Codable {
             address: address,
             displayName: name.isEmpty ? address.short : String(name.prefix(64)),
             handle: try q["h"].map { h throws(KhensuError) in try Handle(h) },
-            keyFingerprint: fingerprint
+            keyFingerprint: fingerprint,
+            card: c.fragment.flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 }

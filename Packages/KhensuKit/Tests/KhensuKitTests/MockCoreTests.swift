@@ -29,7 +29,7 @@ struct MockCoreTests {
         await #expect(throws: KhensuError.identityExists) {
             try await core.createIdentity(displayName: "x", handle: nil, identityKey: Data(count: 2592))
         }
-        let convos = try await core.conversations()
+        let convos = await core.conversations()
         #expect(convos.map(\.kind) == [.notes])
     }
 
@@ -53,7 +53,7 @@ struct MockCoreTests {
         let number = try await core.safetyNumber(with: ana.address)
         #expect(number.groups.count == 6)
         try await core.setVerified(true, contact: ana.address)
-        #expect(try await core.conversations().first { $0.id == c1.id }?.isVerified == true)
+        #expect(await core.conversations().first { $0.id == c1.id }?.isVerified == true)
     }
 
     @Test("Sent messages advance to delivered and emit events")
@@ -85,10 +85,10 @@ struct MockCoreTests {
         let stranger = try JSONEncoder().encode(MockCore.MockPacket(from: try Address(bytes: .random(count: 32)), text: "spam"))
         let got = try await core.receive(sealed: [packet, stranger, Data("garbage".utf8)])
         #expect(got.count == 1 && got[0].conversationID == chat.id)
-        #expect(try await core.conversations().first { $0.id == chat.id }?.unreadCount == 1)
-        #expect(try await core.search("lisbon").count == 1)
-        #expect(try await core.search("paris").isEmpty)
-        #expect(try await core.search(" ").isEmpty)
+        #expect(await core.conversations().first { $0.id == chat.id }?.unreadCount == 1)
+        #expect(await core.search("lisbon").count == 1)
+        #expect(await core.search("paris").isEmpty)
+        #expect(await core.search(" ").isEmpty)
     }
 
     @Test("Pin, mute, archive and read flags; pinned chats sort first")
@@ -101,13 +101,13 @@ struct MockCoreTests {
         try await core.update(a.id, .mute(true))
         try await core.update(b.id, .archive(true))
         try await core.update(b.id, .markUnread)
-        let list = try await core.conversations()
+        let list = await core.conversations()
         #expect(list.first?.id == a.id)
         #expect(list.first { $0.id == a.id }?.isMuted == true)
         #expect(list.first { $0.id == b.id }?.isArchived == true)
         #expect(list.first { $0.id == b.id }?.unreadCount == 1)
         try await core.update(b.id, .markRead)
-        #expect(try await core.conversations().first { $0.id == b.id }?.unreadCount == 0)
+        #expect(await core.conversations().first { $0.id == b.id }?.unreadCount == 0)
         await #expect(throws: KhensuError.unknownConversation) { try await core.update(.random(), .markRead) }
     }
 
@@ -126,7 +126,7 @@ struct MockCoreTests {
 
         await core.wipe()
         #expect(await core.currentIdentity() == nil)
-        #expect(try await core.conversations().isEmpty)
+        #expect(await core.conversations().isEmpty)
     }
 
     @Test("Connecting to a devnet reports its endpoints")
@@ -142,7 +142,7 @@ struct MockCoreTests {
     @Test("The seeded core has sample chats for previews")
     func seeded() async throws {
         let core = await MockCore.seeded(timing: .instant)
-        let list = try await core.conversations()
+        let list = await core.conversations()
         #expect(list.count >= 5)
         #expect(Set(list.map(\.kind)) == Set(ConversationKind.allCases))
         #expect(list.first?.isPinned == true)

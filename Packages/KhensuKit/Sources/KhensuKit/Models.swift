@@ -103,6 +103,7 @@ public struct ConversationID: Hashable, Sendable, Codable, CustomStringConvertib
     public let raw: Data
     public init(raw: Data) { self.raw = raw }
     public static func random() -> ConversationID { ConversationID(raw: .random(count: 16)) }
+    public var hex: String { raw.hex }
     public var description: String { raw.hex }
 }
 

@@ -65,6 +65,9 @@ struct StorageTests {
         try await vault.unlock(reason: "test")
         #expect(try vault.open(box) == Data("history".utf8), "re-wrapping keeps the same store key")
 
+        try vault.changePolicy(.biometricsOrPasscode)
+        #expect(vault.currentPolicy() == .biometricsOrPasscode)
+
         try vault.wipe()
         #expect(!vault.hasStoreKey)
         #expect(try vault.identityPublicKey() == nil)
