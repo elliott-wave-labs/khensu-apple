@@ -38,7 +38,7 @@ struct ChatInfoView: View {
                     } header: {
                         Text("Encryption")
                     } footer: {
-                        Text("ML-KEM-1024 and ML-DSA-87 (MLS). Signing keys rotate every 24 hours or 1,000 messages.")
+                        Text("ML-KEM-1024 and ML-DSA-87 (MLS). A new key for every message; device keys rotate at least every 5 minutes.")
                     }
                 }
 
