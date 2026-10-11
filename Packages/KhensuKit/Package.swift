@@ -4,19 +4,33 @@
 import Foundation
 import PackageDescription
 
-// RustCore links the UniFFI XCFramework built by khensu-core. It is only added
-// when the framework exists, so the package still builds (with MockCore only)
-// on machines that haven't built khensu-core.
-let coreRoot = URL(fileURLWithPath: #filePath)
-    .deletingLastPathComponent()
-    .appendingPathComponent("../../../khensu-core/target")
-    .standardizedFileURL
-let xcframework = coreRoot.appendingPathComponent("KhensuCore.xcframework")
-let hasRustCore = FileManager.default.fileExists(atPath: xcframework.path)
+// RustCore wraps khensu-core's UniFFI bindings. scripts/link-core.sh puts the
+// XCFramework and the generated Swift in place (both gitignored); without
+// them the package builds MockCore only.
+let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let hasRustCore = ["Frameworks/KhensuCore.xcframework", "Sources/KhensuCoreBindings/KhensuCore.swift"]
+    .allSatisfy { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
 
-var targets: [Target] = [
+var kitDependencies: [Target.Dependency] = []
+var targets: [Target] = []
+
+if hasRustCore {
+    targets += [
+        .binaryTarget(name: "KhensuCoreFFI", path: "Frameworks/KhensuCore.xcframework"),
+        // Generated code: built in Swift 5 mode, as UniFFI emits it.
+        .target(
+            name: "KhensuCoreBindings",
+            dependencies: ["KhensuCoreFFI"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+    ]
+    kitDependencies.append("KhensuCoreBindings")
+}
+
+targets += [
     .target(
         name: "KhensuKit",
+        dependencies: kitDependencies,
         resources: [.copy("Resources/wordlist-en.txt")],
         swiftSettings: [.enableUpcomingFeature("ExistentialAny")]
     ),
@@ -26,25 +40,11 @@ var targets: [Target] = [
     ),
 ]
 
-var products: [Product] = [
-    .library(name: "KhensuKit", targets: ["KhensuKit"]),
-]
-
-if hasRustCore {
-    targets += [
-        .binaryTarget(name: "KhensuCoreFFI", path: "../../../khensu-core/target/KhensuCore.xcframework"),
-        .target(
-            name: "KhensuRustCore",
-            dependencies: ["KhensuKit", "KhensuCoreFFI"],
-            swiftSettings: [.define("KHENSU_RUST_CORE")]
-        ),
-    ]
-    products.append(.library(name: "KhensuRustCore", targets: ["KhensuRustCore"]))
-}
-
 let package = Package(
     name: "KhensuKit",
     platforms: [.iOS("26.0"), .macOS("26.0")],
-    products: products,
+    products: [
+        .library(name: "KhensuKit", targets: ["KhensuKit"]),
+    ],
     targets: targets
 )
