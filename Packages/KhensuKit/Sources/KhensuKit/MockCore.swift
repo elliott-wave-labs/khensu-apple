@@ -290,6 +290,12 @@ public actor MockCore: KhensuCore {
         _ = try? receive(sealed: [JSONEncoder().encode(MockPacket(from: from, text: replies.randomElement()!))])
     }
 
+    /// Adds the sample identity and chats used for previews and screenshots.
+    public func seedForDemo() {
+        guard state.identity == nil else { return }
+        seed()
+    }
+
     private func seed() {
         let key = (try? MLDSA87.PrivateKey())?.publicKey.rawRepresentation ?? Data(count: 2592)
         guard (try? createIdentity(displayName: "Elliott", handle: try? Handle("elliott"), identityKey: key)) != nil else { return }
