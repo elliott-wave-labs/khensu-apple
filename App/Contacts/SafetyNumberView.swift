@@ -31,7 +31,9 @@ struct SafetyNumberView: View {
                     VStack(spacing: 6) {
                         Text("Check phrase").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         Text(number.checkPhrase.joined(separator: " · "))
-                            .font(.headline.monospaced())
+                            .font(.title3.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                     }
                     .padding()
                     .frame(maxWidth: .infinity)

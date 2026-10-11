@@ -88,8 +88,17 @@ struct MyCodeCard: View {
     var body: some View {
         VStack(spacing: 14) {
             if let invite {
-                QRCodeView(payload: invite.url.absoluteString)
-                    .frame(maxWidth: 280)
+                if invite.fitsQRCode {
+                    QRCodeView(payload: invite.url.absoluteString)
+                        .frame(maxWidth: 280)
+                } else {
+                    ContentUnavailableView {
+                        Label("Share your link", systemImage: "link")
+                    } description: {
+                        Text("Your contact card carries post-quantum keys (\(ByteCountFormatter.string(fromByteCount: Int64(invite.url.absoluteString.utf8.count), countStyle: .file))), too much for one QR code. Send the link instead; the keys stay in its # part, which is never sent to a server.")
+                    }
+                    .frame(maxWidth: 360)
+                }
                 Text(invite.displayName).font(.title2.weight(.semibold))
                 if let h = invite.handle {
                     HandleLabel(handle: h)
@@ -99,10 +108,16 @@ struct MyCodeCard: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
-                ShareLink(item: invite.url) {
-                    Label("Share Link", systemImage: "square.and.arrow.up")
+                GlassEffectContainer {
+                    HStack {
+                        ShareLink(item: invite.url) {
+                            Label("Share Link", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.glass)
+                        Button("Copy", systemImage: "doc.on.doc") { Clipboard.copy(invite.url.absoluteString) }
+                            .buttonStyle(.glass)
+                    }
                 }
-                .buttonStyle(.glass)
             } else {
                 ProgressView()
             }

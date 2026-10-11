@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import Foundation
 import KhensuKit
 
-/// Picks the core implementation: khensu-core through UniFFI when the package
-/// was built with it, otherwise the simulated MockCore.
+/// khensu-core when KhensuKit was built with it (scripts/link-core.sh), else
+/// MockCore. `-KhensuMockCore YES` forces MockCore for UI work.
 enum CoreFactory {
     static func make() -> any KhensuCore {
-        #if canImport(KhensuRustCore)
-        return RustCore()
-        #else
-        return MockCore()
-        #endif
+        UserDefaults.standard.bool(forKey: "KhensuMockCore") ? MockCore() : Cores.makeDefault()
     }
 }

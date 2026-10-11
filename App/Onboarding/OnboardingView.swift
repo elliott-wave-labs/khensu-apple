@@ -200,8 +200,13 @@ private struct RecoveryKitView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Write these 24 words down, in order, and keep them somewhere safe. They are the only way to recover your account if you lose every device. Nobody, including us, can recover it without them.")
-                    .foregroundStyle(.secondary)
+                if words.isEmpty {
+                    Label("This build's core doesn't hand out the recovery kit yet. You'll be asked to write it down before you can claim your handle.", systemImage: "exclamationmark.shield")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Write these 24 words down, in order, and keep them somewhere safe. They are the only way to recover your account if you lose every device. Nobody, including us, can recover it without them.")
+                        .foregroundStyle(.secondary)
+                }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     ForEach(Array(words.enumerated()), id: \.offset) { i, w in
                         HStack(spacing: 6) {
@@ -215,7 +220,9 @@ private struct RecoveryKitView: View {
                     }
                 }
                 .privacySensitive()
-                Toggle("I've written them down", isOn: $confirmed)
+                if !words.isEmpty {
+                    Toggle("I've written them down", isOn: $confirmed)
+                }
                 Button {
                     done()
                 } label: {
@@ -224,7 +231,7 @@ private struct RecoveryKitView: View {
                 .buttonStyle(.glassProminent)
                 .foregroundStyle(.black)
                 .controlSize(.large)
-                .disabled(!confirmed)
+                .disabled(!confirmed && !words.isEmpty)
             }
             .padding()
         }

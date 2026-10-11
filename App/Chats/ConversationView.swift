@@ -54,6 +54,7 @@ struct ConversationView: View {
         .navigationSubtitle(subtitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         #endif
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
