@@ -290,6 +290,8 @@ final class CallAudio: @unchecked Sendable {
             let format = input.outputFormat(forBus: 0)
             resampler = AVAudioConverter(from: format, to: pcm)
             encoder = AVAudioConverter(from: pcm, to: opus)
+            // Constant bitrate within each ladder step, so packet sizes don't follow speech (nu-audio.md, A1).
+            encoder?.bitRateStrategy = AVAudioBitRateStrategy_Constant
             encoder?.bitRate = 32_000
             input.installTap(onBus: 0, bufferSize: 480, format: format) { [weak self] buffer, _ in
                 self?.queue.async { self?.captured(buffer) }
