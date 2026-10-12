@@ -25,6 +25,8 @@ final class AppModel {
     var selectedTab: AppTab = .chats
     var selectedConversation: ConversationID?
     var errorMessage: String?
+    /// The call or live room on screen, if any.
+    var activeCall: CallSession?
 
     let core: any KhensuCore
     let vault: DeviceVault
@@ -55,6 +57,9 @@ final class AppModel {
     }
 
     var appLockPolicy: DeviceVault.UnlockPolicy { vault.currentPolicy() }
+
+    /// The name shown to the other person in a call or live room.
+    var callName: String { identity?.displayName ?? "khensu.ñü" }
 
     // MARK: Lifecycle
 

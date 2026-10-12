@@ -14,7 +14,6 @@ struct ConversationView: View {
     @State private var draft = ""
     @State private var photo: PhotosPickerItem?
     @State private var showInfo = false
-    @State private var showCallNotice = false
     @FocusState private var composerFocused: Bool
 
     private var conversation: Conversation? { model.conversation(conversationID) }
@@ -59,18 +58,13 @@ struct ConversationView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if conversation?.kind == .direct {
-                    Button("Call", systemImage: "phone") { showCallNotice = true }
+                    Button("Video call", systemImage: "video") { Task { await call(.call) } }
                 }
                 Button("Info", systemImage: "info.circle") { showInfo = true }
             }
         }
         .sheet(isPresented: $showInfo) {
             if let conversation { ChatInfoView(conversation: conversation) }
-        }
-        .alert("Calls are coming", isPresented: $showCallNotice) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Calls will go through two relays run by different operators, so no single machine sees both ends. They aren't in this version yet.")
         }
         .task(id: conversation?.lastMessage) { await load() }
         .task {
@@ -129,6 +123,17 @@ struct ConversationView: View {
         .padding(.vertical, 8)
     }
 
+    /// Hosts the call, then sends its room ID through this encrypted chat.
+    private func call(_ mode: CallSession.Mode) async {
+        do {
+            let session = try CallSession(hosting: mode, name: model.callName)
+            model.activeCall = session
+            await model.send(.text(CallInvite.text(room: session.roomID, mode: mode)), to: conversationID)
+        } catch {
+            model.errorMessage = error.localizedDescription
+        }
+    }
+
     private func senderName(_ m: Message) -> String? {
         guard conversation?.kind == .group, case .contact(let a) = m.sender else { return nil }
         return a.short
@@ -158,6 +163,34 @@ struct ConversationView: View {
         draft = ""
         await model.send(OutgoingMessage(body: .attachment(ref, caption: caption.isEmpty ? nil : caption)), to: conversationID)
         await load()
+    }
+}
+
+/// An invitation to a call or a live room, sent through the encrypted chat.
+private struct CallInviteCard: View {
+    let mode: CallSession.Mode
+    let room: String
+    let mine: Bool
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: mode == .live ? "dot.radiowaves.left.and.right" : "video.fill")
+                .font(.title3)
+                .foregroundStyle(LinearGradient(colors: Aura.core, startPoint: .topLeading, endPoint: .bottomTrailing))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(mode == .live ? "Live room" : "Video call").fontWeight(.semibold)
+                Text(mine ? "You invited them" : "End to end encrypted").font(.caption).foregroundStyle(.secondary)
+            }
+            if !mine {
+                Spacer(minLength: 12)
+                Button(mode == .live ? "Watch" : "Join") {
+                    model.activeCall = CallSession(joining: room, mode: mode, name: model.callName)
+                }
+                .buttonStyle(.glassProminent)
+                .foregroundStyle(.black)
+            }
+        }
     }
 }
 
@@ -256,7 +289,11 @@ struct MessageBubble: View {
     @ViewBuilder private var content: some View {
         switch message.body {
         case .text(let t):
-            Text(t).textSelection(.enabled)
+            if let (mode, room) = CallInvite.parse(t) {
+                CallInviteCard(mode: mode, room: room, mine: message.isMine)
+            } else {
+                Text(t).textSelection(.enabled)
+            }
         case .attachment(let a, let caption):
             VStack(alignment: .leading, spacing: 6) {
                 ZStack {

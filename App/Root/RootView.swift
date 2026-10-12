@@ -26,6 +26,11 @@ struct RootView: View {
             }
         }
         .animation(.smooth, value: model.phase)
+        #if os(iOS)
+        .fullScreenCover(item: $model.activeCall) { CallView(session: $0) }
+        #else
+        .sheet(item: $model.activeCall) { CallView(session: $0).frame(minWidth: 480, minHeight: 760) }
+        #endif
         .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {

@@ -51,38 +51,3 @@ struct FeedView: View {
     }
 }
 
-struct CallsView: View {
-    enum Filter: String, CaseIterable { case all = "All", missed = "Missed" }
-    @State private var filter: Filter = .all
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                DotNetwork(count: 60, opacity: 0.3)
-                    .frame(maxWidth: 420, maxHeight: 420)
-                ContentUnavailableView {
-                    Label("No calls yet", systemImage: "phone")
-                } description: {
-                    Text("Calls go through two relays run by different operators, so no single machine sees both ends. Media is padded to a constant bitrate, so speech patterns don't leak.")
-                } actions: {
-                    Label("Arrives in a later version", systemImage: "moonphase.waxing.crescent")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("Calls")
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Picker("Filter", selection: $filter) {
-                        ForEach(Filter.allCases, id: \.self) { Text($0.rawValue) }
-                    }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("New Call", systemImage: "phone.badge.plus") {}.disabled(true)
-                }
-            }
-        }
-    }
-}

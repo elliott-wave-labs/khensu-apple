@@ -1,0 +1,12 @@
+{
+  "identifier" : "4C1E2A10",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    { "displayPrice" : "0.99", "familyShareable" : false, "internalID" : "6740000001", "localizations" : [ { "description" : "A small tip for the person you're watching.", "displayName" : "Small tip", "locale" : "en_US" } ], "productID" : "nu.khensu.ptah.tip.1", "referenceName" : "Small tip", "type" : "Consumable" },
+    { "displayPrice" : "4.99", "familyShareable" : false, "internalID" : "6740000002", "localizations" : [ { "description" : "A tip for the person you're watching.", "displayName" : "Tip", "locale" : "en_US" } ], "productID" : "nu.khensu.ptah.tip.5", "referenceName" : "Tip", "type" : "Consumable" },
+    { "displayPrice" : "19.99", "familyShareable" : false, "internalID" : "6740000003", "localizations" : [ { "description" : "A big tip for the person you're watching.", "displayName" : "Big tip", "locale" : "en_US" } ], "productID" : "nu.khensu.ptah.tip.20", "referenceName" : "Big tip", "type" : "Consumable" }
+  ],
+  "settings" : { "_failTransactionsEnabled" : false },
+  "subscriptionGroups" : [],
+  "version" : { "major" : 4, "minor" : 0 }
+}
