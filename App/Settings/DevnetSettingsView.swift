@@ -23,7 +23,7 @@ struct DevnetSettingsView: View {
                     }
                 }
                 if case .connected(_, let nodes) = model.connection {
-                    LabeledContent("Endpoints", value: "\(nodes)")
+                    LabeledContent("Nodes", value: "\(nodes)")
                 }
                 if case .failed(let why) = model.connection {
                     Text(why).font(.footnote).foregroundStyle(.secondary)
@@ -71,14 +71,24 @@ struct DevnetSettingsView: View {
             }
 
             if let config {
-                Section("\(config.name): \(config.endpoints.count) endpoints") {
-                    ForEach(config.endpoints, id: \.self) { Text($0).font(.caption.monospaced()) }
+                Section("\(config.name): \(config.nodeCount) nodes") {
+                    if config.version >= 2 {
+                        LabeledContent("Directory", value: "v\(config.version), genesis header and \(config.nodeCount) leases")
+                        ForEach(["committee_size", "threshold", "mailbox_replicas", "mix_layers", "tick_ms"], id: \.self) { key in
+                            if let v = config.rules[key] {
+                                LabeledContent(key, value: "\(v)").font(.caption.monospaced())
+                            }
+                        }
+                    } else {
+                        ForEach(config.endpoints, id: \.self) { Text($0).font(.caption.monospaced()) }
+                    }
                 }
             }
 
             Section {
                 if case .connected = model.connection {
                     Button("Disconnect", systemImage: "bolt.slash", role: .destructive) { Task { await model.disconnect() } }
+                    NavigationLink("Network Test", value: SettingsView.Page.networkTest)
                 } else {
                     Button("Connect", systemImage: "bolt.horizontal") { connect() }
                         .disabled(json.isEmpty || connecting)
@@ -121,7 +131,7 @@ struct DevnetSettingsView: View {
     private func loadFromHost() {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appendingPathComponent("../../../../khensu-devnet/devnet.json")
+            .appendingPathComponent("../../../khensu-devnet/devnet.json")
             .standardizedFileURL
         if let data = try? Data(contentsOf: url) {
             json = String(decoding: data, as: UTF8.self)

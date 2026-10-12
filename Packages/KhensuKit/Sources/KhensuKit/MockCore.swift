@@ -46,6 +46,9 @@ public actor MockCore: KhensuCore {
     private var connection: ConnectionState = .offline
     private var subscribers: [UUID: AsyncStream<CoreEvent>.Continuation] = [:]
     private let timing: Timing
+    private var network: NetworkStatus?
+    private var testOptions = NetworkTestOptions.off
+    private var ticker: Task<Void, Never>?
 
     public init(timing: Timing = .interactive) {
         self.timing = timing
@@ -219,18 +222,90 @@ public actor MockCore: KhensuCore {
     public func connect(_ config: DevnetConfig) async throws -> ConnectionState {
         connection = .connecting
         broadcast(.connection(connection))
+        log(.info, "link.connecting", "network=\(config.name) nodes=\(config.nodeCount)")
         if timing.stateStep > .zero { try await Task.sleep(for: timing.stateStep) }
-        connection = .connected(network: "\(config.name) (simulated)", nodes: config.endpoints.count)
+        network = NetworkStatus(network: config.name, epoch: Self.epochNow, headerEpoch: Self.epochNow, nextHeaderEpoch: nil,
+                                nodes: config.nodeCount, committee: min(config.nodeCount, config.rules["committee_size"] ?? config.nodeCount),
+                                mailboxReplicas: config.rules["mailbox_replicas"] ?? 2, gateway: "gateway-1 (simulated)", ticks: 0, pending: 0,
+                                loopsSent: 0, loopsReturned: 0, lastLoopRTTMs: nil, headersAccepted: 0, storeReceiptsOK: 0, storeReceiptsBad: 0)
+        connection = .connected(network: "\(config.name) (simulated)", nodes: config.nodeCount)
         broadcast(.connection(connection))
+        log(.info, "link.up", "gateway=gateway-1 epoch=\(Self.epochNow)")
+        startTicks()
         return connection
     }
 
     public func disconnect() {
+        ticker?.cancel()
+        ticker = nil
+        if connection != .offline { log(.info, "link.down") }
         connection = .offline
         broadcast(.connection(connection))
     }
 
     public func connectionState() -> ConnectionState { connection }
+
+    public func networkStatus() -> NetworkStatus? { network }
+
+    public func setNetworkTest(_ options: NetworkTestOptions) {
+        testOptions = options
+        log(.info, "test.options", "loops_per_100_ticks=\(options.loopsPer100Ticks) store_receipts=\(options.storeReceipts)")
+    }
+
+    private static var epochNow: UInt64 { UInt64(Date.now.timeIntervalSince1970) / 3600 }
+
+    /// Simulated ticks: loops come back after a mix-like delay, receipts follow
+    /// stores, and a header is "accepted" when the hour turns.
+    private func startTicks() {
+        ticker?.cancel()
+        guard timing.stateStep > .zero else { return }
+        ticker = Task { [weak self] in
+            var tick: UInt64 = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard let self else { return }
+                tick += 1
+                await self.simulateTick(tick)
+            }
+        }
+    }
+
+    private func simulateTick(_ tick: UInt64) {
+        guard var n = network else { return }
+        n.ticks = tick
+        n.epoch = Self.epochNow
+        if n.epoch > n.headerEpoch {
+            n.headerEpoch = n.epoch
+            n.headersAccepted += 1
+            log(.info, "header.installed", "epoch=\(n.epoch)")
+            broadcast(.network(.headerAccepted(epoch: n.epoch, nodes: n.nodes, committee: n.committee)))
+        }
+        let rate = UInt64(testOptions.loopsPer100Ticks)
+        if rate > 0, (tick * rate) % 100 < rate {
+            n.loopsSent += 1
+            let rtt = UInt64.random(in: 900...2_600)
+            let lost = UInt64.random(in: 0..<100) < 3
+            log(.debug, "loop.sent", "seq=\(n.loopsSent)")
+            if !lost {
+                n.loopsReturned += 1
+                n.lastLoopRTTMs = rtt
+                log(.info, "loop.returned", "rtt_ms=\(rtt) hops=5")
+                broadcast(.network(.loopReturned(rttMs: rtt, hops: 5)))
+            } else {
+                log(.warn, "loop.lost", "seq=\(n.loopsSent)")
+            }
+        }
+        if testOptions.storeReceipts, n.pending == 0, tick % 15 == 0 {
+            n.storeReceiptsOK += 1
+            log(.info, "receipt.ok", "replica=mailbox-\(1 + tick / 15 % 2) epoch=\(n.epoch)")
+            broadcast(.network(.storeReceipt(replica: "mailbox-\(1 + tick / 15 % 2)", epoch: n.epoch, valid: true)))
+        }
+        network = n
+    }
+
+    private func log(_ level: LogLevel, _ message: String, _ fields: String = "") {
+        CoreLog.shared.append(level: level, target: "MockCore", message: message, fields: fields)
+    }
 
     // MARK: State
 
@@ -246,8 +321,9 @@ public actor MockCore: KhensuCore {
     }
 
     public func wipe() {
+        disconnect()
         state = Snapshot(identity: nil, contacts: [], conversations: [], messages: [:])
-        connection = .offline
+        network = nil
         broadcast(.conversationsChanged)
     }
 

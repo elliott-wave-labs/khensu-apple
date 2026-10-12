@@ -44,10 +44,34 @@ public actor RustCore: KhensuCore {
     private var link: GatewayLink?
     private var session: LinkSession?
     private var loops: [Task<Void, Never>] = []
+    private var testOptions = NetworkTestOptions.off
 
-    public init() {}
+    public init() {
+        _ = Self.logSinkInstalled
+    }
 
     private static var nowMs: UInt64 { UInt64(Date.now.timeIntervalSince1970 * 1000) }
+
+    /// Routes khensu-core's tracing events into `CoreLog`, once per process
+    /// (`setLogSink` returns false when a sink is already installed).
+    private static let logSinkInstalled: Bool = setLogSink(sink: CoreLogSink(), minLevel: .debug)
+
+    private final class CoreLogSink: LogSink, Sendable {
+        func log(level: KhensuCoreBindings.LogLevel, target: String, message: String, fields: String) {
+            let l: KhensuKit.LogLevel = switch level {
+            case .trace: .trace
+            case .debug: .debug
+            case .info: .info
+            case .warn: .warn
+            case .error: .error
+            }
+            CoreLog.shared.append(level: l, target: target, message: message, fields: fields)
+        }
+    }
+
+    private func log(_ level: KhensuKit.LogLevel, _ message: String, _ fields: String = "") {
+        CoreLog.shared.append(level: level, target: "RustCore", message: message, fields: fields)
+    }
 
     private func requireClient() throws -> KhensuClient {
         guard let client else { throw KhensuError.noIdentity }
@@ -249,9 +273,21 @@ public actor RustCore: KhensuCore {
                 if side.meta[cid] == nil { side.meta[cid] = Meta() }
             case .membersChanged, .removedFromConversation:
                 break
+            case .loopReturned(let rtt, let hops):
+                broadcast(.network(.loopReturned(rttMs: rtt, hops: Int(hops))))
+            case .headerAccepted(let epoch, let nodes, let committee):
+                broadcast(.network(.headerAccepted(epoch: epoch, nodes: Int(nodes), committee: Int(committee))))
+            case .storeReceipt(let replica, let epoch, let valid):
+                broadcast(.network(.storeReceipt(replica: replica, epoch: epoch, valid: valid)))
             }
         }
-        if !events.isEmpty { broadcast(.conversationsChanged) }
+        let chatEvents = events.contains { e in
+            switch e {
+            case .loopReturned, .headerAccepted, .storeReceipt: false
+            default: true
+            }
+        }
+        if chatEvents { broadcast(.conversationsChanged) }
         return received
     }
 
@@ -290,15 +326,21 @@ public actor RustCore: KhensuCore {
             let session = try hs.finish(accept: try await link.receive(exactly: acceptLength))
             self.session = session
             try await link.send(session.sealSubscribe(deliveryId: c.deliveryId()))
+            // Any epoch headers we missed while offline.
+            try await sendControl(c.headerRequest())
+            applyTestOptions(c)
             let interval = try c.tickIntervalMs()
             loops = [
                 Task { await self.tickLoop(every: interval) },
                 Task { await self.readLoop() },
             ]
-            setConnection(.connected(network: "\(config.name) via \(gw.name)", nodes: config.endpoints.count))
+            let status = c.networkStatus(nowMs: Self.nowMs)
+            log(.info, "link.up", "gateway=\(gw.name) endpoint=\(gw.endpoint) epoch=\(status.epoch) header=\(status.headerEpoch) nodes=\(status.nodes)")
+            setConnection(.connected(network: "\(config.name) via \(gw.name)", nodes: Int(status.nodes)))
         } catch {
             disconnect()
             let why = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+            log(.error, "link.failed", "error=\(why)")
             setConnection(.failed(why))
             throw KhensuError.core(why)
         }
@@ -311,10 +353,43 @@ public actor RustCore: KhensuCore {
         link?.cancel()
         link = nil
         session = nil
-        if connection != .offline { setConnection(.offline) }
+        if connection != .offline {
+            log(.info, "link.down")
+            setConnection(.offline)
+        }
     }
 
     public func connectionState() -> ConnectionState { connection }
+
+    public func networkStatus() -> NetworkStatus? {
+        guard let client else { return nil }
+        let s = client.networkStatus(nowMs: Self.nowMs)
+        guard !s.network.isEmpty else { return nil }
+        return NetworkStatus(network: s.network, epoch: s.epoch, headerEpoch: s.headerEpoch, nextHeaderEpoch: s.nextHeaderEpoch,
+                             nodes: Int(s.nodes), committee: Int(s.committee), mailboxReplicas: Int(s.mailboxReplicas), gateway: s.gateway,
+                             ticks: s.ticks, pending: Int(s.pending), loopsSent: s.loopsSent, loopsReturned: s.loopsReturned,
+                             lastLoopRTTMs: s.lastLoopRttMs, headersAccepted: s.headersAccepted,
+                             storeReceiptsOK: s.storeReceiptsOk, storeReceiptsBad: s.storeReceiptsBad)
+    }
+
+    public func setNetworkTest(_ options: NetworkTestOptions) {
+        testOptions = options
+        if let client { applyTestOptions(client) }
+    }
+
+    private func applyTestOptions(_ c: KhensuClient) {
+        c.setLoopRate(per100Ticks: testOptions.loopsPer100Ticks)
+        c.setStoreReceipts(on: testOptions.storeReceipts)
+        log(.info, "test.options", "loops_per_100_ticks=\(testOptions.loopsPer100Ticks) store_receipts=\(testOptions.storeReceipts)")
+    }
+
+    /// Writes one control message (one or more sealed frames) on the link.
+    private func sendControl(_ message: Data) async throws {
+        guard let link, let session else { return }
+        for frame in try session.sealControl(message: message) {
+            try await link.send(frame)
+        }
+    }
 
     private func setConnection(_ s: ConnectionState) {
         connection = s
@@ -353,8 +428,19 @@ public actor RustCore: KhensuCore {
                 let prefix = try await link.receive(exactly: 4)
                 let n = try Int(linkFrameLength(prefix: prefix))
                 let frame = try session.openFrame(sealed: try await link.receive(exactly: n))
-                if case .deliver(let ref, let payload) = frame {
+                switch frame {
+                case .deliver(let ref, let payload):
                     handle(try client.processIncoming(payloadKeyRef: ref, payload: payload, nowMs: Self.nowMs))
+                case .control(let message):
+                    do {
+                        handle(try client.processControl(message: message, nowMs: Self.nowMs))
+                    } catch KhensuCoreBindings.KhensuError.Network(let msg) {
+                        // A header more than one epoch ahead: ask for the chain from ours.
+                        log(.warn, "header.gap", "error=\(msg)")
+                        try await sendControl(client.headerRequest())
+                    }
+                case .packet, .subscribe, .padding, .controlPart:
+                    break
                 }
             } catch is CancellationError {
                 return

@@ -46,6 +46,7 @@ shot 09-search         -KhensuTab search
 shot 10-settings       -KhensuTab settings
 shot 11-devnet         -KhensuTab settings -KhensuScreen devnet
 shot 12-about          -KhensuTab settings -KhensuScreen about
+WAIT=12 shot 13-network-test -KhensuTab settings -KhensuScreen networkTest
 
 xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
 xcrun simctl status_bar "$UDID" clear

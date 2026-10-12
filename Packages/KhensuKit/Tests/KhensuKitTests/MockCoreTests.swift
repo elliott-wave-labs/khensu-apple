@@ -139,6 +139,42 @@ struct MockCoreTests {
         #expect(await core.connectionState() == .offline)
     }
 
+    @Test("A directory v2 counts leases, reads the rules and feeds the network status")
+    func directoryV2() async throws {
+        let v2 = #"{"version":2,"network":"devnet","genesis_time":1791504000,"epoch_secs":3600,"rules":{"committee_size":6,"threshold":5,"mailbox_replicas":2,"founder_pk":"x"},"header":"AAAA","leases":["a","b","c","d","e","f"]}"#
+        let config = try DevnetConfig(string: v2)
+        #expect(config.version == 2 && config.nodeCount == 6 && config.endpoints.isEmpty)
+        #expect(config.rules["committee_size"] == 6 && config.rules["founder_pk"] == nil)
+        #expect(throws: KhensuError.invalidDevnetConfig("no leases in the directory")) {
+            try DevnetConfig(string: #"{"version":2,"network":"devnet","header":"AAAA","leases":[]}"#)
+        }
+        #expect(throws: KhensuError.invalidDevnetConfig("no epoch header in the directory")) {
+            try DevnetConfig(string: #"{"version":2,"network":"devnet","leases":["a"]}"#)
+        }
+
+        let (core, _, _) = try await newCore()
+        #expect(await core.networkStatus() == nil)
+        await core.setNetworkTest(.full)
+        _ = try await core.connect(config)
+        let status = try #require(await core.networkStatus())
+        #expect(status.nodes == 6 && status.committee == 6 && status.mailboxReplicas == 2 && status.loopReturnRate == nil)
+        await core.disconnect()
+    }
+
+    @Test("CoreLog keeps the last lines and streams new ones")
+    func coreLog() async throws {
+        let log = CoreLog(capacity: 3)
+        let stream = log.stream()
+        for i in 1...5 { log.append(level: .info, target: "t", message: "event.\(i)", fields: "n=\(i)") }
+        #expect(log.snapshot().map(\.message) == ["event.3", "event.4", "event.5"])
+        var it = stream.makeAsyncIterator()
+        let first = try #require(await it.next())
+        #expect(first.message == "event.1" && first.text.hasSuffix("info  event.1 n=1"))
+        #expect(log.export().split(separator: "\n").count == 3)
+        log.clear()
+        #expect(log.snapshot().isEmpty)
+    }
+
     @Test("The seeded core has sample chats for previews")
     func seeded() async throws {
         let core = await MockCore.seeded(timing: .instant)

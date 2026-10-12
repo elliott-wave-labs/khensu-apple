@@ -4,7 +4,7 @@ import KhensuKit
 import SwiftUI
 
 struct SettingsView: View {
-    enum Page: Hashable { case profile, appLock, notifications, privacy, devnet, sunu, about, licences }
+    enum Page: Hashable { case profile, appLock, notifications, privacy, devnet, networkTest, sunu, about, licences }
 
     @Environment(AppModel.self) private var model
     @State private var path: [Page] = []
@@ -49,6 +49,15 @@ struct SettingsView: View {
                             Label("Devnet", systemImage: "point.3.connected.trianglepath.dotted")
                         }
                     }
+                    NavigationLink(value: Page.networkTest) {
+                        LabeledContent {
+                            if let n = model.network, n.loopsSent > 0 {
+                                Text("\(n.loopsReturned)/\(n.loopsSent) loops")
+                            }
+                        } label: {
+                            Label("Network Test", systemImage: "waveform.path.ecg")
+                        }
+                    }
                     NavigationLink(value: Page.sunu) {
                         LabeledContent {
                             Text("Not paired")
@@ -78,6 +87,7 @@ struct SettingsView: View {
                 case .notifications: NotificationSettingsView()
                 case .privacy: PrivacySettingsView()
                 case .devnet: DevnetSettingsView()
+                case .networkTest: NetworkTestView()
                 case .sunu: SunuView()
                 case .about: AboutView()
                 case .licences: LicencesView()
@@ -91,6 +101,7 @@ struct SettingsView: View {
             .onAppear {
                 switch model.launch.screen {
                 case .devnet: path = [.devnet]
+                case .networkTest: path = [.networkTest]
                 case .about: path = [.about]
                 default: break
                 }

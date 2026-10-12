@@ -21,6 +21,13 @@ final class AppModel {
     private(set) var conversations: [Conversation] = []
     private(set) var connection: ConnectionState = .offline
     private(set) var devnet: DevnetConfig?
+    /// Network test: the core's counters, the last loop RTTs and recent header/receipt events.
+    private(set) var network: NetworkStatus?
+    private(set) var loopSamples: [LoopSample] = []
+    private(set) var networkEvents: [NetworkEventRecord] = []
+    var networkTest = NetworkTestOptions.off {
+        didSet { Task { await core.setNetworkTest(networkTest) } }
+    }
     private(set) var sharedDrafts: [String] = []
     var selectedTab: AppTab = .chats
     var selectedConversation: ConversationID?
@@ -77,6 +84,12 @@ final class AppModel {
                 return
             }
             await didUnlock()
+            if launch.screen == .networkTest,
+               let demo = try? DevnetConfig(string: #"{"version":2,"network":"devnet","rules":{"committee_size":6,"threshold":5,"mailbox_replicas":2},"header":"-","leases":["1","2","3","4","5","6"]}"#) {
+                // The simulated network answers loops and receipts for the screenshot.
+                networkTest = .full
+                await connect(demo)
+            }
             return
         }
         if vault.hasStoreKey {
@@ -84,6 +97,43 @@ final class AppModel {
             if appLockPolicy == .none { await unlock() }
         } else {
             phase = .onboarding
+        }
+        if let devnetPath = launch.devnet {
+            await autoDevnet(devnetPath)
+        }
+    }
+
+    /// `-KhensuDevnet <path|auto>`: a test identity without app lock if there is
+    /// none, then connect to that devnet.json with loops and receipts on and
+    /// open the Network test screen. For running against khensu-devnet from
+    /// the command line; `auto` reads ../khensu-devnet/devnet.json next to this
+    /// repo (Simulator and Mac builds), a relative path is taken from the app's
+    /// Documents (devices).
+    private func autoDevnet(_ path: String) async {
+        if phase == .onboarding {
+            do {
+                _ = try await createIdentity(displayName: "Tester", handle: "", appLock: false)
+                await finishOnboarding()
+            } catch {
+                errorMessage = "Auto devnet: \(error.localizedDescription)"
+                return
+            }
+        }
+        guard phase == .ready else { return }
+        let url = switch path {
+        case "auto": URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../khensu-devnet/devnet.json").standardizedFileURL
+        case let p where p.hasPrefix("/"): URL(fileURLWithPath: p)
+        // On a device: a file copied into the app's Documents with `devicectl device copy to`.
+        default: URL.documentsDirectory.appendingPathComponent(path)
+        }
+        do {
+            let config = try DevnetConfig(json: Data(contentsOf: url))
+            networkTest = .full
+            selectedTab = .settings
+            await connect(config)
+            log.info("auto devnet: \(self.connection.summary, privacy: .public)")
+        } catch {
+            errorMessage = "Auto devnet: \(error.localizedDescription)"
         }
     }
 
@@ -227,6 +277,27 @@ final class AppModel {
         connection = .offline
     }
 
+    func refreshNetworkStatus() async {
+        network = await core.networkStatus()
+    }
+
+    func clearNetworkTest() {
+        loopSamples = []
+        networkEvents = []
+        CoreLog.shared.clear()
+    }
+
+    private func record(_ event: NetworkEvent) {
+        switch event {
+        case .loopReturned(let rtt, let hops):
+            loopSamples.append(LoopSample(at: .now, rttMs: rtt, hops: hops))
+            if loopSamples.count > 120 { loopSamples.removeFirst(loopSamples.count - 120) }
+        case .headerAccepted, .storeReceipt:
+            networkEvents.insert(NetworkEventRecord(at: .now, event: event), at: 0)
+            if networkEvents.count > 100 { networkEvents.removeLast(networkEvents.count - 100) }
+        }
+    }
+
     // MARK: Security
 
     func setAppLock(_ policy: DeviceVault.UnlockPolicy) {
@@ -277,8 +348,40 @@ final class AppModel {
                 switch event {
                 case .connection(let state): self.connection = state
                 case .conversationsChanged, .messageReceived, .messageStateChanged: await self.refresh()
+                case .network(let e): self.record(e)
                 }
             }
+        }
+    }
+}
+
+/// One loop probe that came back.
+struct LoopSample: Identifiable, Hashable {
+    let id = UUID()
+    let at: Date
+    let rttMs: UInt64
+    let hops: Int
+}
+
+/// A header or receipt event, newest first on the Network test screen.
+struct NetworkEventRecord: Identifiable, Hashable {
+    let id = UUID()
+    let at: Date
+    let event: NetworkEvent
+
+    var title: String {
+        switch event {
+        case .headerAccepted(let epoch, let nodes, let committee): "Header \(epoch) accepted: \(nodes) nodes, committee of \(committee)"
+        case .storeReceipt(let replica, let epoch, let valid): valid ? "Store receipt from \(replica), epoch \(epoch)" : "Bad store receipt from \(replica)"
+        case .loopReturned(let rtt, let hops): "Loop returned in \(rtt) ms over \(hops) hops"
+        }
+    }
+
+    var symbol: String {
+        switch event {
+        case .headerAccepted: "checkmark.seal"
+        case .storeReceipt(_, _, let valid): valid ? "tray.and.arrow.down" : "exclamationmark.triangle"
+        case .loopReturned: "arrow.triangle.2.circlepath"
         }
     }
 }
@@ -292,18 +395,21 @@ enum SettingsKey {
 
 /// Launch arguments for screenshots and UI checks, e.g. `-KhensuDemo YES -KhensuTab feed`.
 struct LaunchOptions {
-    enum Screen: String { case onboarding, lock, conversation, addContact, safety, devnet, about }
+    enum Screen: String { case onboarding, lock, conversation, addContact, safety, devnet, networkTest, about }
 
     var demo = false
     var tab: AppTab?
     var screen: Screen?
+    /// `-KhensuDevnet auto` or a path to a devnet.json: connect at launch (see `AppModel.autoDevnet`).
+    var devnet: String?
 
     static var current: LaunchOptions {
         let d = UserDefaults.standard
         return LaunchOptions(
             demo: d.bool(forKey: "KhensuDemo"),
             tab: d.string(forKey: "KhensuTab").flatMap(AppTab.init(rawValue:)),
-            screen: d.string(forKey: "KhensuScreen").flatMap(Screen.init(rawValue:))
+            screen: d.string(forKey: "KhensuScreen").flatMap(Screen.init(rawValue:)),
+            devnet: d.string(forKey: "KhensuDevnet")
         )
     }
 }

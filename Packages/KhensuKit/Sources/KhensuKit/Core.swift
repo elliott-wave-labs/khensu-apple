@@ -46,6 +46,10 @@ public protocol KhensuCore: AnyObject, Sendable {
     func connect(_ config: DevnetConfig) async throws -> ConnectionState
     func disconnect() async
     func connectionState() async -> ConnectionState
+    /// Counters for the Network test screen; nil without a directory.
+    func networkStatus() async -> NetworkStatus?
+    /// Turns loop probes and store receipts on or off; applies to the current and later connections.
+    func setNetworkTest(_ options: NetworkTestOptions) async
 
     // MARK: State
     /// Serialized local state, encrypted by the caller with the local store key.
@@ -71,6 +75,8 @@ public enum CoreEvent: Sendable, Equatable {
     case messageStateChanged(MessageID, ConversationID, DeliveryState)
     case conversationsChanged
     case connection(ConnectionState)
+    /// Loops, headers and receipts, for the Network test screen.
+    case network(NetworkEvent)
 }
 
 public struct SafetyNumber: Sendable, Hashable {
