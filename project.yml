@@ -51,6 +51,10 @@ targets:
         destinationFilters: [iOS]
         embed: true
         codeSign: true
+      - target: CallActivity
+        destinationFilters: [iOS]
+        embed: true
+        codeSign: true
     settings:
       base:
         PRODUCT_NAME: khensu.nu
@@ -70,6 +74,7 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Elliott Wave LLC. AGPL-3.0."
         INFOPLIST_FILE: App/Support/Info.plist
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSCameraUsageDescription: Video calls and going live, and scanning a contact's QR code. Hand gestures are recognised on your device; only the effect they set off is sent.
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Your voice in calls and live rooms, end to end encrypted.
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Calls and live rooms connect straight to devices on your network or nearby, with no server in between.
@@ -146,6 +151,34 @@ targets:
         PRODUCT_NAME: ShareExtension
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
+
+  CallActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: CallActivity
+      - path: App/Calls/CallActivityAttributes.swift
+    info:
+      path: CallActivity/Info.plist
+      properties:
+        CFBundleDisplayName: khensu.nu calls
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: CallActivity/CallActivity.entitlements
+      properties:
+        com.apple.security.application-groups: [group.nu.khensu.ptah]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: nu.khensu.ptah.call-activity
+        PRODUCT_NAME: CallActivity
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: khensu.nu calls
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
 
   PtahTests:
     type: bundle.unit-test

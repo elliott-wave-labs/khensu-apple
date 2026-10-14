@@ -4,12 +4,16 @@
 import StoreKit
 import SwiftUI
 
-/// Full-screen call or live room: the other person (or yourself, when you're
-/// live) edge to edge, your own picture in a corner you can drag, and
-/// controls on translucent fills (glass steps aside over video).
+/// Full-screen call or live room: remote and local video (system PiP keeps
+/// both), duration on a Live Activity, controls on translucent fills (glass
+/// steps aside over video).
 struct CallView: View {
     let session: CallSession
     @Environment(\.dismiss) private var dismiss
+    #if os(iOS)
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var systemPiP: CallPiPCoordinator?
+    #endif
     @State private var corner = CGSize(width: 1, height: -1)
     @State private var drag = CGSize.zero
     @State private var showTips = false
@@ -37,27 +41,48 @@ struct CallView: View {
         #if os(iOS)
         .statusBarHidden(session.phase == .connected)
         .persistentSystemOverlays(.hidden)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background, session.phase == .connected {
+                systemPiP?.start()
+            }
+        }
         #endif
         .sheet(isPresented: $showTips) { tipSheet }
         .task { session.start() }
-        .onDisappear { session.end() }
+        .onDisappear {
+            #if os(iOS)
+            systemPiP?.stop()
+            #endif
+            session.end()
+        }
     }
 
     // MARK: Stage
 
     @ViewBuilder private var stage: some View {
+        #if os(iOS)
+        ZStack {
+            CallPiPStage(session: session, pip: $systemPiP)
+            if session.phase != .connected || session.peers.first?.cameraOff == true
+                || (session.role == .host && session.peers.isEmpty && session.mode != .live) {
+                waitingCard(session.peers.first?.name)
+            }
+        }
+        #else
         GeometryReader { geo in
             ZStack {
                 if session.role == .host && session.mode == .live {
                     selfView.frame(width: geo.size.width, height: geo.size.height)
                 } else {
                     remote
-                    if session.isSending { pip(in: geo.size) }
+                    if session.isSending { cornerPiP(in: geo.size) }
                 }
             }
         }
+        #endif
     }
 
+    #if !os(iOS)
     @ViewBuilder private var remote: some View {
         let other = session.peers.first
         ZStack {
@@ -76,7 +101,7 @@ struct CallView: View {
         }
     }
 
-    private func pip(in size: CGSize) -> some View {
+    private func cornerPiP(in size: CGSize) -> some View {
         let w = min(size.width * 0.3, 150)
         let h = w * 16 / 9
         let x = (size.width - w) / 2 - 16
@@ -103,6 +128,7 @@ struct CallView: View {
                 })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+    #endif
 
     private func waitingCard(_ name: String?) -> some View {
         VStack(spacing: 14) {
@@ -156,10 +182,27 @@ struct CallView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            if session.isSending && session.phase == .connected {
-                Text(rateLabel).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .khensuGlass(in: .capsule)
+            HStack(spacing: 8) {
+                #if os(iOS)
+                if session.phase == .connected {
+                    Button {
+                        if systemPiP?.isActive == true { systemPiP?.stop() } else { systemPiP?.start() }
+                    } label: {
+                        Image(systemName: systemPiP?.isActive == true
+                              ? "rectangle.on.rectangle.slash"
+                              : "rectangle.on.rectangle")
+                            .font(.body.weight(.semibold))
+                            .padding(8)
+                            .khensuGlass(in: .circle)
+                    }
+                    .accessibilityLabel(systemPiP?.isActive == true ? "Leave Picture in Picture" : "Picture in Picture")
+                }
+                #endif
+                if session.isSending && session.phase == .connected {
+                    Text(rateLabel).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .khensuGlass(in: .capsule)
+                }
             }
         }
         .foregroundStyle(Palette.starlight)

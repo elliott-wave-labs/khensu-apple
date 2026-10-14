@@ -203,8 +203,24 @@ final class CallSession: Identifiable {
     private(set) var toasts: [Toast] = []
     private(set) var connectedAt: Date?
     private(set) var step = CallLadder.start
-    var muted = false { didSet { pipe.audio.muted = muted; announceState() } }
-    var cameraOff = false { didSet { pipe.setVideoEnabled(!cameraOff); announceState() } }
+    var muted = false {
+        didSet {
+            pipe.audio.muted = muted
+            announceState()
+            #if os(iOS)
+            CallLiveActivity.update(for: self)
+            #endif
+        }
+    }
+    var cameraOff = false {
+        didSet {
+            pipe.setVideoEnabled(!cameraOff)
+            announceState()
+            #if os(iOS)
+            CallLiveActivity.update(for: self)
+            #endif
+        }
+    }
 
     let camera: CallCamera?
     let pipe = CallPipe()
@@ -291,6 +307,7 @@ final class CallSession: Identifiable {
         for l in pipe.allLinks { l.wire.close() }
         #if os(iOS)
         UIApplication.shared.isIdleTimerDisabled = false
+        CallLiveActivity.end()
         #endif
         phase = .ended(reason)
     }
@@ -415,6 +432,9 @@ final class CallSession: Identifiable {
         if connectedAt == nil { connectedAt = .now }
         phase = .connected
         announceState()
+        #if os(iOS)
+        CallLiveActivity.start(for: self)
+        #endif
     }
 
     private func left(_ link: CallLink) {
@@ -447,11 +467,17 @@ final class CallSession: Identifiable {
             if let i = peers.firstIndex(where: { $0.id == link.id }) {
                 peers[i].muted = c.muted ?? false
                 peers[i].cameraOff = c.cameraOff ?? false
+                #if os(iOS)
+                CallLiveActivity.update(for: self)
+                #endif
             }
         case .keyframe:
             pipe.encoder.requestKeyframe()
         case .viewers:
             viewerCount = c.count ?? viewerCount
+            #if os(iOS)
+            CallLiveActivity.update(for: self)
+            #endif
         case .bye:
             link.wire.close()
         }
