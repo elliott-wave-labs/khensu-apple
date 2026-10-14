@@ -1,110 +1,117 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import KhensuKit
 import SwiftUI
 import WebKit
 
-/// nu.waves companion: same App Group as khensu.nu (`group.nu.khensu.ptah`) so
-/// shared media and identity can live beside the messenger's sealed queue.
+/// nu.waves companion: WKWebView over waves.khensu.nu with native bridges for
+/// AirPods head pose, Music library (`nu-local:`), and background audio.
+/// App Group `group.nu.khensu.ptah` stays in entitlements for shared media with khensu.nu.
 struct WavesRootView: View {
-    @State private var groupURL: URL?
-    @State private var sharedFiles: [String] = []
-    @State private var messengerQueuePresent = false
-
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                WavesWebView(url: URL(string: "https://waves.khensu.nu")!)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                groupBar
-            }
+        WavesWebView(url: URL(string: "https://waves.khensu.nu")!)
+            .ignoresSafeArea()
             .background(Color.black)
-            .navigationTitle("nu.waves")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Refresh share", systemImage: "arrow.triangle.2.circlepath") { refreshShare() }
-                }
-            }
-            .onAppear { refreshShare() }
-        }
-    }
-
-    private var groupBar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(groupURL == nil ? Color.red : Color.green)
-                    .frame(width: 8, height: 8)
-                Text(groupURL == nil ? "App Group missing" : "App Group group.nu.khensu.ptah")
-                    .font(.caption.monospaced())
-                Spacer()
-                Text(messengerQueuePresent ? "messenger queue ✓" : "no messenger queue yet")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if let groupURL {
-                Text(groupURL.path)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            if !sharedFiles.isEmpty {
-                Text("Shared/Waves: \(sharedFiles.joined(separator: ", "))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial)
-    }
-
-    private func refreshShare() {
-        let group = IncomingQueue.appGroup
-        groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
-        if let queue = IncomingQueue.shared() {
-            messengerQueuePresent = FileManager.default.fileExists(atPath: queue.url.path)
-        } else {
-            messengerQueuePresent = false
-        }
-        guard let root = groupURL else {
-            sharedFiles = []
-            return
-        }
-        let wavesDir = root.appendingPathComponent("Shared/Waves", isDirectory: true)
-        try? FileManager.default.createDirectory(at: wavesDir, withIntermediateDirectories: true)
-        sharedFiles = (try? FileManager.default.contentsOfDirectory(atPath: wavesDir.path)) ?? []
+            .onAppear { WavesAudioSession.activatePlayback() }
     }
 }
 
 #if os(iOS)
 struct WavesWebView: UIViewRepresentable {
     let url: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> WKWebView {
-        let v = WKWebView()
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        config.setURLSchemeHandler(context.coordinator.schemeHandler, forURLScheme: NuLocalSchemeHandler.scheme)
+        config.userContentController.add(context.coordinator.bridge, name: WavesBridge.name)
+        // Let the page know the native shell is present before first paint.
+        let boot = WKUserScript(
+            source: "window.__wavesNative=window.__wavesNative||{};window.__wavesNative.shell=true;",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(boot)
+
+        let v = WKWebView(frame: .zero, configuration: config)
         v.isOpaque = false
         v.backgroundColor = .black
         v.scrollView.backgroundColor = .black
+        v.scrollView.contentInsetAdjustmentBehavior = .never
+        v.allowsBackForwardNavigationGestures = false
+        context.coordinator.bridge.attach(to: v)
+        context.coordinator.webView = v
+        v.load(URLRequest(url: url))
         return v
     }
+
     func updateUIView(_ view: WKWebView, context: Context) {
-        if view.url != url { view.load(URLRequest(url: url)) }
+        if view.url == nil { view.load(URLRequest(url: url)) }
+    }
+
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        coordinator.tearDown()
+    }
+
+    @MainActor
+    final class Coordinator {
+        let bridge = WavesBridge()
+        let schemeHandler = NuLocalSchemeHandler()
+        weak var webView: WKWebView?
+
+        func tearDown() {
+            bridge.tearDown()
+            webView?.configuration.userContentController.removeScriptMessageHandler(forName: WavesBridge.name)
+            webView = nil
+        }
     }
 }
 #elseif os(macOS)
 struct WavesWebView: NSViewRepresentable {
     let url: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> WKWebView {
-        let v = WKWebView()
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(context.coordinator.schemeHandler, forURLScheme: NuLocalSchemeHandler.scheme)
+        config.userContentController.add(context.coordinator.bridge, name: WavesBridge.name)
+        let boot = WKUserScript(
+            source: "window.__wavesNative=window.__wavesNative||{};window.__wavesNative.shell=true;",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(boot)
+
+        let v = WKWebView(frame: .zero, configuration: config)
         v.setValue(false, forKey: "drawsBackground")
+        context.coordinator.bridge.attach(to: v)
+        context.coordinator.webView = v
+        v.load(URLRequest(url: url))
         return v
     }
+
     func updateNSView(_ view: WKWebView, context: Context) {
-        if view.url != url { view.load(URLRequest(url: url)) }
+        if view.url == nil { view.load(URLRequest(url: url)) }
+    }
+
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        coordinator.tearDown()
+    }
+
+    @MainActor
+    final class Coordinator {
+        let bridge = WavesBridge()
+        let schemeHandler = NuLocalSchemeHandler()
+        weak var webView: WKWebView?
+
+        func tearDown() {
+            bridge.tearDown()
+            webView?.configuration.userContentController.removeScriptMessageHandler(forName: WavesBridge.name)
+            webView = nil
+        }
     }
 }
 #endif

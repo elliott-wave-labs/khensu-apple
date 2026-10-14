@@ -174,9 +174,6 @@ targets:
         excludes:
           - Support
       - path: App/Resources/Assets.xcassets
-    dependencies:
-      - package: KhensuKit
-        product: KhensuKit
     settings:
       base:
         PRODUCT_NAME: nu.waves
@@ -189,9 +186,13 @@ targets:
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Waves/Support/Waves-macOS.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Waves/Support/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: nu.waves
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Elliott Wave LLC. AGPL-3.0."
+        INFOPLIST_KEY_NSAppleMusicUsageDescription: Play music already on this device inside nu.waves. Nothing leaves the device.
+        INFOPLIST_KEY_NSMotionUsageDescription: Head tracking from your headphones so sounds stay where you placed them. Pose never leaves the device.
+        INFOPLIST_KEY_NSCameraUsageDescription: Optional face tracking for listening. Frames stay on this device and are never sent.
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
