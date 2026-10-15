@@ -10,6 +10,10 @@ khensu.nu for iPhone, iPad and Mac (`nu.khensu.ptah`). SwiftUI with stock Liquid
 | Feed, Calls, Search | `07-feed.png`, `08-calls.png`, `09-search.png` |
 | Settings, Devnet, About | `10-settings.png`, `11-devnet.png`, `12-about.png` |
 
+## Install without the App Store
+
+See [`docs/INSTALL.md`](docs/INSTALL.md): PWA at [waves.khensu.nu](https://waves.khensu.nu/), build from this repo, or sideload a Release IPA. Archive nu.waves for App Store Connect with `scripts/archive-waves.sh`.
+
 ## Build
 
 Needs Xcode 26.2 and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The Xcode project is generated, not committed.
