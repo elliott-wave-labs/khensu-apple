@@ -247,6 +247,25 @@ struct CallView: View {
                 #if os(iOS)
                 round("arrow.triangle.2.circlepath.camera.fill", label: "Flip camera") { session.camera?.flip() }
                 #endif
+                Menu {
+                    ForEach(AvatarStyle.allCases) { style in
+                        Button {
+                            session.avatarStyle = style
+                        } label: {
+                            Label(style.label, systemImage: style.symbol)
+                            if session.avatarStyle == style { Image(systemName: "checkmark") }
+                        }
+                    }
+                } label: {
+                    Image(systemName: session.avatarStyle == .off ? "person.crop.artframe" : session.avatarStyle.symbol)
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 50, height: 50)
+                        .foregroundStyle(session.avatarStyle == .off
+                            ? AnyShapeStyle(Palette.starlight)
+                            : AnyShapeStyle(LinearGradient(colors: Aura.core, startPoint: .topLeading, endPoint: .bottomTrailing)))
+                        .background(.white.opacity(0.12), in: .circle)
+                }
+                .accessibilityLabel("ñü.ævätåřş style, \(session.avatarStyle.label)")
             }
             round("heart.fill", label: "Send a heart", aura: true) { session.trigger(.heart) }
             round("sparkles", label: "Send fireworks", aura: true) { session.trigger(.spark) }

@@ -222,8 +222,14 @@ final class CallSession: Identifiable {
         }
     }
 
+    /// ñü.ævätåřş style on the local camera (on device).
+    var avatarStyle: AvatarStyle = .off {
+        didSet { styler.setStyle(avatarStyle) }
+    }
+
     let camera: CallCamera?
     let pipe = CallPipe()
+    private let styler = AvatarStyler()
     private let gestures = GestureDetector()
     private var kem: MLKEM1024.PrivateKey?
     private var listener: NWListener?
@@ -269,9 +275,11 @@ final class CallSession: Identifiable {
         if let camera {
             let encoder = pipe.encoder
             let gestures = gestures
+            let styler = styler
             camera.onFrame = { [weak camera] sample in
-                encoder.encode(sample)
-                gestures.process(sample, mirrored: false)
+                let framed = styler.process(sample)
+                encoder.encode(framed)
+                gestures.process(framed, mirrored: false)
                 _ = camera
             }
             gestures.onGesture = { [weak self] effect, point in

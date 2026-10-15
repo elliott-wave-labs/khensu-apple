@@ -32,21 +32,14 @@ open Ptah.xcodeproj
 
 In Xcode: select the **Waves** or **Ptah** scheme, your team (`LHS49D8RYY` for Elliott Wave LLC, or your own), a plugged-in iPhone, then Run. Automatic signing is enough for a personal device.
 
-### Archive for App Store Connect (nu.waves)
+### Archive for App Store Connect
 
 ```sh
-scripts/archive-waves.sh
+scripts/archive-ptah.sh    # khėnsu.ñü → ~/Desktop/khensu-ptah-submit/
+scripts/archive-waves.sh   # nu.waves → ~/Desktop/khensu-waves-submit/
 ```
 
-That writes `~/Desktop/khensu-waves-submit/Waves.xcarchive` and, when export succeeds, `nu.waves.ipa` beside it. Open the archive in Xcode Organizer → Distribute App → App Store Connect, or:
-
-```sh
-xcodebuild -exportArchive \
-  -archivePath ~/Desktop/khensu-waves-submit/Waves.xcarchive \
-  -exportPath ~/Desktop/khensu-waves-submit/export \
-  -exportOptionsPlist Waves/Support/ExportOptions-AppStore.plist \
-  -allowProvisioningUpdates
-```
+Each writes an `.xcarchive` and, when export succeeds, an `.ipa` beside it. Open the archive in Xcode Organizer → Distribute App → App Store Connect, or export with the matching `ExportOptions-AppStore.plist`. Upload needs an App Store Connect API key (`AuthKey_*.p8`) or a signed-in Xcode account.
 
 ## Licences
 

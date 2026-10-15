@@ -69,6 +69,12 @@ struct SettingsView: View {
 
                 Section("About") {
                     NavigationLink(value: Page.about) { Label("About khensu.nu", systemImage: "moon.stars") }
+                    Link(destination: URL(string: "https://avatars.khensu.nu")!) {
+                        Label("ñü.ævätåřş", systemImage: "person.crop.artframe")
+                    }
+                    Link(destination: URL(string: "https://indra.og.khensu.nu")!) {
+                        Label("îňðřæ.ōġ", systemImage: "circle.hexagongrid")
+                    }
                     NavigationLink(value: Page.licences) { Label("Licences", systemImage: "doc.text") }
                 }
 
