@@ -10,3 +10,5 @@ xcuserdata/
 # Linked from ../khensu-core by scripts/link-core.sh
 Packages/KhensuKit/Sources/KhensuCoreBindings/*.swift
 Packages/KhensuKit/Frameworks/
+# Private App Store / TestFlight narrative (nu.ot.222)
+docs/CHANGELOG.private.md
