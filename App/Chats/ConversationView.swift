@@ -292,29 +292,64 @@ struct MessageBubble: View {
             if let (mode, room) = CallInvite.parse(t) {
                 CallInviteCard(mode: mode, room: room, mine: message.isMine)
             } else {
-                Text(t).textSelection(.enabled)
+                AutoTranslatedText(text: t)
             }
         case .attachment(let a, let caption):
-            VStack(alignment: .leading, spacing: 6) {
-                ZStack {
-                    if let p = a.preview, let image = PlatformImage(data: p) {
-                        Image(platformImage: image).resizable().scaledToFill().blur(radius: 6)
-                    } else {
-                        Palette.graphiteRaised
+            switch a.kind {
+            case .voice, .video:
+                VoiceNoteBubble(attachment: a, caption: caption)
+            case .image, .file:
+                VStack(alignment: .leading, spacing: 6) {
+                    ZStack {
+                        if let p = a.preview, let image = PlatformImage(data: p) {
+                            Image(platformImage: image).resizable().scaledToFill().blur(radius: 6)
+                        } else {
+                            Palette.graphiteRaised
+                        }
+                        VStack(spacing: 4) {
+                            Image(systemName: a.kind == .file ? "doc" : "photo").font(.title2)
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(a.byteCount), countStyle: .file)).font(.caption)
+                        }
+                        .foregroundStyle(Palette.starlight)
                     }
-                    VStack(spacing: 4) {
-                        Image(systemName: "photo").font(.title2)
-                        Text(ByteCountFormatter.string(fromByteCount: Int64(a.byteCount), countStyle: .file)).font(.caption)
+                    .frame(width: 220, height: a.aspectHeight(forWidth: 220))
+                    .clipShape(.rect(cornerRadius: 12))
+                    Text("Photo placeholder: nu-media encoding and upload arrive in a later version.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if let caption {
+                        AutoTranslatedText(text: caption)
                     }
-                    .foregroundStyle(Palette.starlight)
                 }
-                .frame(width: 220, height: a.aspectHeight(forWidth: 220))
-                .clipShape(.rect(cornerRadius: 12))
-                Text("Photo placeholder: nu-media encoding and upload arrive in a later version.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                if let caption { Text(caption) }
             }
         }
+    }
+}
+
+private struct VoiceNoteBubble: View {
+    let attachment: AttachmentRef
+    let caption: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: attachment.kind == .video ? "video.circle.fill" : "waveform.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(Palette.starlight)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(attachment.kind == .video ? "Video note" : "Voice note")
+                        .font(.subheadline.weight(.semibold))
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.byteCount), countStyle: .file))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            MessageCaptions(
+                sourceText: caption,
+                audioData: attachment.kind == .voice ? attachment.preview : nil,
+                showSourceCaption: true
+            )
+        }
+        .frame(minWidth: 180, alignment: .leading)
     }
 }
 

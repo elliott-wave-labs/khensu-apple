@@ -175,9 +175,23 @@ public enum MessageBody: Hashable, Sendable, Codable {
 
     public var previewText: String {
         switch self {
-        case .text(let t): t
+        case .text(let t):
+            return t
         case .attachment(let a, let caption):
-            caption.map { "Photo · \($0)" } ?? (a.kind == .image ? "Photo" : "Attachment")
+            if let caption, !caption.isEmpty {
+                switch a.kind {
+                case .voice: return "Voice · \(caption)"
+                case .video: return "Video · \(caption)"
+                case .image: return "Photo · \(caption)"
+                case .file: return "File · \(caption)"
+                }
+            }
+            switch a.kind {
+            case .voice: return "Voice note"
+            case .video: return "Video note"
+            case .image: return "Photo"
+            case .file: return "Attachment"
+            }
         }
     }
 }

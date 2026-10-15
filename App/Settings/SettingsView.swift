@@ -229,6 +229,8 @@ private struct NotificationSettingsView: View {
 private struct PrivacySettingsView: View {
     @AppStorage(SettingsKey.typingIndicators) private var typing = true
     @AppStorage(SettingsKey.readReceipts) private var receipts = true
+    @AppStorage(SettingsKey.showCaptions) private var captions = true
+    @AppStorage(SettingsKey.autoTranslate) private var autoTranslate = true
 
     var body: some View {
         Form {
@@ -237,6 +239,14 @@ private struct PrivacySettingsView: View {
                 Toggle("Read Receipts", isOn: $receipts)
             } footer: {
                 Text("Both work both ways: turn them off and you won't see other people's either. They travel through the mixnet like messages, in place of cover traffic.")
+            }
+            Section {
+                Toggle("Captions on voice and video", isOn: $captions)
+                Toggle("Auto-translate messages", isOn: $autoTranslate)
+            } header: {
+                Text("Captions and translation")
+            } footer: {
+                Text("Both run only on this device with Apple’s Speech and Translation frameworks. Nothing is sent to a server for speech or translation.")
             }
             Section {
                 LabeledContent("Phone number", value: "Never needed")

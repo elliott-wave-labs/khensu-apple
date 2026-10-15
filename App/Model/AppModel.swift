@@ -391,6 +391,10 @@ enum SettingsKey {
     static let notificationMode = "notifications.mode"
     static let typingIndicators = "privacy.typingIndicators"
     static let readReceipts = "privacy.readReceipts"
+    /// On-device captions for voice and video notes (SpeechAnalyzer).
+    static let showCaptions = "media.showCaptions"
+    /// On-device auto-translation of messages and captions (Translation).
+    static let autoTranslate = "media.autoTranslate"
 }
 
 /// Launch arguments for screenshots and UI checks, e.g. `-KhensuDemo YES -KhensuTab feed`.

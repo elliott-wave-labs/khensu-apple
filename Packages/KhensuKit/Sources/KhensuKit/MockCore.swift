@@ -406,6 +406,22 @@ public actor MockCore: KhensuCore {
             (.contact(ana.address), "Good. Lisbon trip moved to 12–19 May.", 420),
             (.contact(ana.address), "Bring the shield, the hostel Wi-Fi is hopeless.", 300),
         ], unread: 2, pinned: true, verified: true, timer: 86_400)
+        if let i = state.conversations.firstIndex(where: { $0.title == ana.displayName }) {
+            let voice = Message(
+                id: .random(),
+                conversationID: state.conversations[i].id,
+                sender: .contact(ana.address),
+                body: .attachment(
+                    AttachmentRef(kind: .voice, byteCount: 48_000),
+                    caption: "Meet at the ferry at six — captions stay on your phone."
+                ),
+                sentAt: now.addingTimeInterval(-180),
+                state: .delivered
+            )
+            state.messages[state.conversations[i].id, default: []].append(voice)
+            state.conversations[i].lastMessage = voice
+            state.conversations[i].unreadCount += 1
+        }
         convo(.group, "Night Sky Club", [ana, ra, tho], [
             (.contact(ra.address), "Waning crescent tonight, 23% lit.", 7200),
             (.contact(tho.address), "Clear skies from 22:00. Who's in?", 5400),

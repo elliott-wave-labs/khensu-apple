@@ -44,9 +44,63 @@ final class WavesBridge: NSObject, WKScriptMessageHandler {
             setHeadTracking(on)
         case "library":
             pushLibrary()
+        case "translate":
+            let text = body["text"] as? String ?? ""
+            let id = body["id"] as? String
+            Task { await translate(text, id: id) }
+        case "caption":
+            let urlString = body["url"] as? String
+            let id = body["id"] as? String
+            Task { await caption(urlString: urlString, id: id) }
         default:
             break
         }
+    }
+
+    /// Page → native: `{ type: "translate", text, id? }` → `__wavesNative.translated(id, text)`.
+    private func translate(_ text: String, id: String?) async {
+        do {
+            let out = try await OnDeviceCaptions.translate(text)
+            pushResult(fn: "translated", id: id, text: out, error: nil)
+        } catch {
+            pushResult(fn: "translated", id: id, text: nil, error: error.localizedDescription)
+        }
+    }
+
+    /// Page → native: `{ type: "caption", url, id? }` → `__wavesNative.captioned(id, text)`.
+    private func caption(urlString: String?, id: String?) async {
+        guard let urlString, let url = URL(string: urlString) else {
+            pushResult(fn: "captioned", id: id, text: nil, error: "Missing audio URL")
+            return
+        }
+        do {
+            let out = try await OnDeviceCaptions.transcribe(fileURL: url)
+            pushResult(fn: "captioned", id: id, text: out, error: nil)
+        } catch {
+            pushResult(fn: "captioned", id: id, text: nil, error: error.localizedDescription)
+        }
+    }
+
+    private func pushResult(fn: String, id: String?, text: String?, error: String?) {
+        let idJS = id.map { "'\($0.replacingOccurrences(of: "'", with: "\\'"))'" } ?? "null"
+        let textJS: String
+        if let text, let data = try? JSONSerialization.data(withJSONObject: text),
+           let s = String(data: data, encoding: .utf8)
+        {
+            textJS = s
+        } else {
+            textJS = "null"
+        }
+        let errJS: String
+        if let error, let data = try? JSONSerialization.data(withJSONObject: error),
+           let s = String(data: data, encoding: .utf8)
+        {
+            errJS = s
+        } else {
+            errJS = "null"
+        }
+        let js = "window.__wavesNative&&window.__wavesNative.\(fn)&&window.__wavesNative.\(fn)(\(idJS),\(textJS),\(errJS))"
+        webView?.evaluateJavaScript(js, completionHandler: nil)
     }
 
     func setHeadTracking(_ on: Bool) {
