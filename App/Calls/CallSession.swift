@@ -50,6 +50,8 @@ final class CallLink: @unchecked Sendable {
     var name = ""
     var isViewer = false
     var ready = false
+    /// Came through the call relay rather than the local network.
+    var viaRelay = false
 
     init(_ wire: CallWire) { self.wire = wire }
 }
@@ -386,6 +388,7 @@ final class CallSession: Identifiable {
         guard let kem else { return }
         if mode == .call, pipe.allLinks.contains(where: \.ready) { return conn.cancel() }
         let link = CallLink(CallWire(conn, preamble: preamble))
+        link.viaRelay = preamble != nil
         let pk = kem.publicKey.rawRepresentation
         link.wire.onReady = { [wire = link.wire, name = localName, mode] in
             var hello = Data([1])
@@ -441,6 +444,7 @@ final class CallSession: Identifiable {
 
     private func dial(_ conn: NWConnection, preamble: Data?) {
         let link = CallLink(CallWire(conn, preamble: preamble))
+        link.viaRelay = preamble != nil
         let room = roomID
         let viewer = role == .viewer
         let name = localName
@@ -496,6 +500,9 @@ final class CallSession: Identifiable {
         if role == .viewer { safetyCode = code }
         if role != .host {
             for l in pipe.allLinks where !l.ready { l.wire.close() }
+        }
+        if link.viaRelay, connectedAt == nil {
+            toast("Connected through the khėnsu.ñü beta relay. It sees only encrypted data.")
         }
         if connectedAt == nil { connectedAt = .now }
         phase = .connected
