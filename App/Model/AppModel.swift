@@ -162,6 +162,25 @@ final class AppModel {
         connection = await core.connectionState()
         loadSharedDrafts()
         phase = .ready
+        Task { await joinPublicNetwork() }
+    }
+
+    /// The public beta network's directory, published with the site so it can
+    /// change without an app update. The core checks every lease signature.
+    static let publicNetworkURL = URL(string: "https://khensu.nu/network.json")!
+
+    /// Connects to the public network unless a devnet was chosen.
+    private func joinPublicNetwork() async {
+        guard devnet == nil, !launch.demo, launch.devnet == nil, !(core is MockCore) else { return }
+        let defaults = UserDefaults.standard
+        var config = defaults.data(forKey: SettingsKey.publicNetwork).flatMap { try? DevnetConfig(json: $0) }
+        if let (data, response) = try? await URLSession.shared.data(from: Self.publicNetworkURL),
+           (response as? HTTPURLResponse)?.statusCode == 200, let fresh = try? DevnetConfig(json: data) {
+            config = fresh
+            defaults.set(data, forKey: SettingsKey.publicNetwork)
+        }
+        guard let config, devnet == nil else { return }
+        await connect(config)
     }
 
     /// Persist, drop plaintext from memory, forget the store key.
@@ -395,6 +414,8 @@ enum SettingsKey {
     static let showCaptions = "media.showCaptions"
     /// On-device auto-translation of messages and captions (Translation).
     static let autoTranslate = "media.autoTranslate"
+    /// The last public network directory fetched, for starting offline.
+    static let publicNetwork = "network.public"
 }
 
 /// Launch arguments for screenshots and UI checks, e.g. `-KhensuDemo YES -KhensuTab feed`.

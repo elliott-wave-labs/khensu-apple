@@ -95,8 +95,13 @@ final class CallWire: @unchecked Sendable {
     private var closed = false
     private let lock = NSLock()
 
-    init(_ connection: NWConnection) {
+    /// Sent before anything else once the connection is up: the relay's
+    /// header line (`CallRelay`), or nothing for a direct connection.
+    private let preamble: Data?
+
+    init(_ connection: NWConnection, preamble: Data? = nil) {
         self.connection = connection
+        self.preamble = preamble
     }
 
     /// Bytes handed to the network that haven't left this device yet.
@@ -106,7 +111,9 @@ final class CallWire: @unchecked Sendable {
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
-            case .ready: self.onReady?()
+            case .ready:
+                if let p = self.preamble { self.connection.send(content: p, completion: .idempotent) }
+                self.onReady?()
             case .failed, .cancelled: self.finish()
             default: break
             }

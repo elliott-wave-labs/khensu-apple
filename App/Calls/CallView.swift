@@ -63,7 +63,9 @@ struct CallView: View {
         #if os(iOS)
         ZStack {
             CallPiPStage(session: session, pip: $systemPiP)
-            if session.phase != .connected || session.peers.first?.cameraOff == true
+            if session.role == .host && session.mode == .live && session.viewerCount == 0 && session.peers.isEmpty {
+                liveHostEmpty
+            } else if session.phase != .connected || session.peers.first?.cameraOff == true
                 || (session.role == .host && session.peers.isEmpty && session.mode != .live) {
                 waitingCard(session.peers.first?.name)
             }
@@ -73,6 +75,7 @@ struct CallView: View {
             ZStack {
                 if session.role == .host && session.mode == .live {
                     selfView.frame(width: geo.size.width, height: geo.size.height)
+                    if session.viewerCount == 0 && session.peers.isEmpty { liveHostEmpty }
                 } else {
                     remote
                     if session.isSending { cornerPiP(in: geo.size) }
@@ -80,6 +83,37 @@ struct CallView: View {
             }
         }
         #endif
+    }
+
+    /// Live host with nobody watching yet: keep the camera up, don’t cover it in black.
+    private var liveHostEmpty: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 10) {
+                Text("You’re live").font(.title3.weight(.semibold))
+                Text("Share the invite from a chat so people can watch and tip you. Gifts stay 100% yours.")
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                ShareLink(
+                    item: CallInvite.text(room: session.roomID, mode: .live),
+                    subject: Text("I’m live on khensu.ñü"),
+                    message: Text("Join my live room on khensu.ñü")
+                ) {
+                    Label("Share invite", systemImage: "square.and.arrow.up")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(LinearGradient(colors: Aura.glow, startPoint: .leading, endPoint: .trailing), in: .capsule)
+                        .foregroundStyle(.black)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: 360)
+            .khensuGlass(in: .rect(cornerRadius: 22))
+            .padding(.bottom, 110)
+        }
+        .padding(.horizontal, 20)
+        .allowsHitTesting(true)
     }
 
     #if !os(iOS)
@@ -269,8 +303,9 @@ struct CallView: View {
             }
             round("heart.fill", label: "Send a heart", aura: true) { session.trigger(.heart) }
             round("sparkles", label: "Send fireworks", aura: true) { session.trigger(.spark) }
-            if session.role == .viewer {
-                round("dollarsign", label: "Tip", aura: true) { showTips = true }
+            // Viewers gift the streamer; tips stay 100% to the person (app commerce).
+            if session.role == .viewer || (session.mode == .live && session.role != .host) {
+                round("gift.fill", label: "Gift streamer", aura: true) { showTips = true }
             }
             Button {
                 session.end()
@@ -307,7 +342,7 @@ struct CallView: View {
         NavigationStack {
             List {
                 Section {
-                    if tips.products.isEmpty {
+                    if tips.loading && tips.products.isEmpty {
                         HStack { ProgressView(); Text("Loading…").foregroundStyle(.secondary) }
                     }
                     ForEach(tips.products, id: \.id) { p in
@@ -325,6 +360,9 @@ struct CallView: View {
                                 Text(p.displayPrice).fontWeight(.semibold)
                             }
                         }
+                    }
+                    if !tips.loading && tips.products.isEmpty {
+                        Text("Tips aren’t available yet.").foregroundStyle(.secondary)
                     }
                 } footer: {
                     Text("Paid with Apple in-app purchase. Apple keeps its App Store fee; khensu.ñü takes no cut of the rest.")

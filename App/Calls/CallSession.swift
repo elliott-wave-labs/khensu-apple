@@ -5,6 +5,7 @@ import CryptoKit
 import Foundation
 import Network
 import Observation
+import os
 #if os(iOS)
 import UIKit
 #endif
@@ -233,6 +234,10 @@ final class CallSession: Identifiable {
     private let gestures = GestureDetector()
     private var kem: MLKEM1024.PrivateKey?
     private var listener: NWListener?
+    private var relayHost: CallRelayHost?
+    /// A guest dials nearby and through the relay; the first link to finish
+    /// the handshake is kept.
+    private let claimed = OSAllocatedUnfairLock(initialState: false)
     private var ticker: Task<Void, Never>?
     private var clearSince = Date()
 
@@ -272,6 +277,28 @@ final class CallSession: Identifiable {
         #if os(iOS)
         UIApplication.shared.isIdleTimerDisabled = true
         #endif
+        // Ask for camera / mic before opening the session — otherwise Go live
+        // and calls show a black stage with no system prompt.
+        Task { @MainActor in
+            if self.camera != nil {
+                let cam = await AVCaptureDevice.requestAccess(for: .video)
+                if !cam {
+                    self.teardown("Camera access is off. Turn it on in Settings to go live or call.")
+                    return
+                }
+            }
+            if self.isSending {
+                let mic = await AVCaptureDevice.requestAccess(for: .audio)
+                if !mic {
+                    self.teardown("Microphone access is off. Turn it on in Settings for voice.")
+                    return
+                }
+            }
+            self.beginMediaAndNetwork()
+        }
+    }
+
+    private func beginMediaAndNetwork() {
         if let camera {
             let encoder = pipe.encoder
             let gestures = gestures
@@ -288,6 +315,15 @@ final class CallSession: Identifiable {
             camera.start()
         }
         pipe.audio.start(capture: isSending)
+        // Live hosts are "on air" as soon as the camera is up — don't wait for a viewer.
+        if role == .host && mode == .live && connectedAt == nil {
+            connectedAt = .now
+            phase = .connected
+            #if os(iOS)
+            CallLiveActivity.start(for: self)
+            #endif
+            toast("You’re live. Share the invite from Chats.")
+        }
         switch role {
         case .host: listen()
         case .guest, .viewer: connect()
@@ -309,6 +345,7 @@ final class CallSession: Identifiable {
     private func teardown(_ reason: String?) {
         ticker?.cancel()
         listener?.cancel()
+        relayHost?.stop()
         camera?.stop()
         pipe.encoder.stop()
         pipe.audio.stop()
@@ -322,28 +359,33 @@ final class CallSession: Identifiable {
 
     // MARK: Hosting
 
+    /// Nearby guests find the room over Bonjour; everyone else comes in
+    /// through the relay. Either path alone is enough.
     private func listen() {
-        do {
-            let l = try NWListener(using: CallService.parameters())
+        if let l = try? NWListener(using: CallService.parameters()) {
             let txt = NWTXTRecord(["n": localName, "m": mode.rawValue])
             l.service = NWListener.Service(name: roomID, type: CallService.type, domain: nil, txtRecord: txt)
             l.newConnectionHandler = { [weak self] conn in
                 Task { @MainActor in self?.accept(conn) }
             }
-            l.stateUpdateHandler = { [weak self] state in
-                if case .failed(let e) = state { Task { @MainActor in self?.teardown(e.localizedDescription) } }
+            l.stateUpdateHandler = { state in
+                if case .failed = state { l.cancel() }
             }
             l.start(queue: .main)
             listener = l
-        } catch {
-            teardown(error.localizedDescription)
         }
+        let relay = CallRelayHost(room: roomID)
+        relay.onGuest = { [weak self] conn, preamble in
+            Task { @MainActor in self?.accept(conn, preamble: preamble) }
+        }
+        relay.start()
+        relayHost = relay
     }
 
-    private func accept(_ conn: NWConnection) {
+    private func accept(_ conn: NWConnection, preamble: Data? = nil) {
         guard let kem else { return }
-        if mode == .call, !pipe.allLinks.isEmpty { return conn.cancel() }
-        let link = CallLink(CallWire(conn))
+        if mode == .call, pipe.allLinks.contains(where: \.ready) { return conn.cancel() }
+        let link = CallLink(CallWire(conn, preamble: preamble))
         let pk = kem.publicKey.rawRepresentation
         link.wire.onReady = { [wire = link.wire, name = localName, mode] in
             var hello = Data([1])
@@ -383,16 +425,31 @@ final class CallSession: Identifiable {
 
     private func connect() {
         phase = .connecting
-        let conn = NWConnection(to: .service(name: roomID, type: CallService.type, domain: "local.", interface: nil),
-                                using: CallService.parameters())
-        let link = CallLink(CallWire(conn))
+        dial(NWConnection(to: .service(name: roomID, type: CallService.type, domain: "local.", interface: nil),
+                          using: CallService.parameters()), preamble: nil)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard let self, self.phase == .connecting else { return }
+            self.dial(CallRelay.connection(), preamble: CallRelay.join(self.roomID))
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(25))
+            guard let self, self.phase == .connecting else { return }
+            self.teardown("Couldn’t reach the call. The invite may have ended; ask for a new one.")
+        }
+    }
+
+    private func dial(_ conn: NWConnection, preamble: Data?) {
+        let link = CallLink(CallWire(conn, preamble: preamble))
         let room = roomID
         let viewer = role == .viewer
         let name = localName
+        let claimed = claimed
         link.wire.onFrame = { [weak self, pipe] frame in
             if !link.ready {
                 // Hello: [1][name length][name][mode][ML-KEM-1024 public key]
                 guard frame.count > 4 + 1568, frame.first == 1 else { return link.wire.close() }
+                guard claimed.withLock({ c in defer { c = true }; return !c }) else { return link.wire.close() }
                 let pk = Data(frame.suffix(1568))
                 guard CallKeys.roomID(for: pk) == room,
                       let publicKey = try? MLKEM1024.PublicKey(rawRepresentation: pk),
@@ -437,6 +494,9 @@ final class CallSession: Identifiable {
             safetyCode = code
         }
         if role == .viewer { safetyCode = code }
+        if role != .host {
+            for l in pipe.allLinks where !l.ready { l.wire.close() }
+        }
         if connectedAt == nil { connectedAt = .now }
         phase = .connected
         announceState()
@@ -455,8 +515,11 @@ final class CallSession: Identifiable {
             return
         }
         peers.removeAll { $0.id == link.id }
+        // A path that never finished its handshake: the host keeps waiting,
+        // and a guest waits while its other path is still trying.
+        if !link.ready, role == .host || !pipe.allLinks.isEmpty { return }
         if role != .host || mode == .call {
-            teardown(link.ready ? nil : "Couldn’t reach the call. Calls connect on the same network or nearby.")
+            teardown(link.ready ? nil : "Couldn’t reach the call. The invite may have ended; ask for a new one.")
         }
     }
 
