@@ -23,6 +23,10 @@ final class WavesBridge: NSObject, WKScriptMessageHandler {
 
     func attach(to webView: WKWebView) {
         self.webView = webView
+        WavesSharePlayCoordinator.shared.onEventToWeb = { [weak self] json in
+            let js = "window.__wavesNative&&window.__wavesNative.shareplay&&window.__wavesNative.shareplay(\(json))"
+            self?.webView?.evaluateJavaScript(js, completionHandler: nil)
+        }
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -52,6 +56,8 @@ final class WavesBridge: NSObject, WKScriptMessageHandler {
             let urlString = body["url"] as? String
             let id = body["id"] as? String
             Task { await caption(urlString: urlString, id: id) }
+        case "shareplay":
+            Task { await WavesSharePlayCoordinator.shared.handleWebMessage(body) }
         default:
             break
         }
