@@ -109,15 +109,26 @@ final class WavesBridge: NSObject, WKScriptMessageHandler {
         webView?.evaluateJavaScript(js, completionHandler: nil)
     }
 
+    /// ñü.mobility xyz estimate (metres, bubble axes: x right, y ahead, z up): head motion integrated
+    /// with a strong leak, so it reads as leaning and shifting inside the bubble — never as a walked
+    /// distance, and it drifts back to the centre on its own. On-device only, like the pose itself.
+    private var mobilityVel = (x: 0.0, y: 0.0, z: 0.0)
+    private var mobilityPos = (x: 0.0, y: 0.0, z: 0.0)
+    private var mobilityLast: TimeInterval = 0
+
     func setHeadTracking(_ on: Bool) {
         #if os(iOS)
         headOn = on
         if on {
+            mobilityVel = (0, 0, 0)
+            mobilityPos = (0, 0, 0)
+            mobilityLast = 0
             guard headphoneMotion.isDeviceMotionAvailable else { return }
             headphoneMotion.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
-                guard let self, self.headOn, let attitude = motion?.attitude else { return }
+                guard let self, self.headOn, let motion else { return }
                 // CMAttitude: yaw right-positive around up, pitch up-positive, roll right-ear-down — matches head.ts.
-                self.pushHead(yaw: attitude.yaw, pitch: attitude.pitch, roll: attitude.roll)
+                let at = motion.attitude
+                self.pushHead(yaw: at.yaw, pitch: at.pitch, roll: at.roll, place: self.mobilityPlace(motion))
             }
         } else {
             headphoneMotion.stopDeviceMotionUpdates()
@@ -125,8 +136,38 @@ final class WavesBridge: NSObject, WKScriptMessageHandler {
         #endif
     }
 
-    private func pushHead(yaw: Double, pitch: Double, roll: Double) {
-        let js = "window.__wavesNative&&window.__wavesNative.head&&window.__wavesNative.head(\(yaw),\(pitch),\(roll))"
+    #if os(iOS)
+    /// Damped double integration of user acceleration, rotated into the bubble frame by the inverse
+    /// attitude, clamped to ±1.2 m. A lean estimate for ñü.mobility, not a position fix.
+    private func mobilityPlace(_ motion: CMDeviceMotion) -> (x: Double, y: Double, z: Double) {
+        let dt = mobilityLast > 0 ? min(0.1, max(0.001, motion.timestamp - mobilityLast)) : 0.016
+        mobilityLast = motion.timestamp
+        var acc = motion.userAcceleration
+        // Rotate device-frame acceleration into the reference (bubble) frame with the attitude quaternion.
+        let q = motion.attitude.quaternion
+        let v = (x: acc.x, y: acc.y, z: acc.z)
+        let u = (x: 2 * (q.y * v.z - q.z * v.y), y: 2 * (q.z * v.x - q.x * v.z), z: 2 * (q.x * v.y - q.y * v.x))
+        acc = CMAcceleration(
+            x: v.x + q.w * u.x + (q.y * u.z - q.z * u.y),
+            y: v.y + q.w * u.y + (q.z * u.x - q.x * u.z),
+            z: v.z + q.w * u.z + (q.x * u.y - q.y * u.x))
+        // CMAcceleration is in g; to m/s², then integrate with leaks (velocity 0.80, place 0.995 per step at 60 Hz).
+        mobilityVel.x = mobilityVel.x * 0.80 + acc.x * 9.81 * dt
+        mobilityVel.y = mobilityVel.y * 0.80 + acc.y * 9.81 * dt
+        mobilityVel.z = mobilityVel.z * 0.80 + acc.z * 9.81 * dt
+        // Bubble axes: reference x right, y ahead (−z of the motion reference), z up.
+        mobilityPos.x = clampMobility(mobilityPos.x * 0.995 + mobilityVel.x * dt)
+        mobilityPos.y = clampMobility(mobilityPos.y * 0.995 - mobilityVel.z * dt)
+        mobilityPos.z = clampMobility(mobilityPos.z * 0.995 + mobilityVel.y * dt)
+        return mobilityPos
+    }
+
+    private func clampMobility(_ v: Double) -> Double { min(1.2, max(-1.2, v)) }
+    #endif
+
+    private func pushHead(yaw: Double, pitch: Double, roll: Double, place: (x: Double, y: Double, z: Double)? = nil) {
+        let xyz = place.map { ",\($0.x),\($0.y),\($0.z)" } ?? ""
+        let js = "window.__wavesNative&&window.__wavesNative.head&&window.__wavesNative.head(\(yaw),\(pitch),\(roll)\(xyz))"
         webView?.evaluateJavaScript(js, completionHandler: nil)
     }
 

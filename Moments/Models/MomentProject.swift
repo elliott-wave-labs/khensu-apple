@@ -12,6 +12,8 @@ struct MomentClip: Identifiable, Hashable, Sendable, Codable {
     var inPoint: TimeInterval
     /// Length on the timeline (seconds).
     var outDuration: TimeInterval
+    var speed: Double = 1
+    var muted: Bool = false
 
     init(id: UUID = UUID(), url: URL, duration: TimeInterval, isPhoto: Bool, inPoint: TimeInterval = 0, outDuration: TimeInterval? = nil) {
         self.id = id
@@ -20,6 +22,19 @@ struct MomentClip: Identifiable, Hashable, Sendable, Codable {
         self.isPhoto = isPhoto
         self.inPoint = inPoint
         self.outDuration = outDuration ?? (isPhoto ? 2.4 : min(duration, 2.4))
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, url, duration, isPhoto, inPoint, outDuration, speed, muted }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        url = try c.decode(URL.self, forKey: .url)
+        duration = try c.decode(TimeInterval.self, forKey: .duration)
+        isPhoto = try c.decode(Bool.self, forKey: .isPhoto)
+        inPoint = try c.decodeIfPresent(TimeInterval.self, forKey: .inPoint) ?? 0
+        outDuration = try c.decode(TimeInterval.self, forKey: .outDuration)
+        speed = try c.decodeIfPresent(Double.self, forKey: .speed) ?? 1
+        muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false
     }
 }
 
@@ -61,6 +76,9 @@ final class MomentProject {
     var clips: [MomentClip]
     var captions: [MomentCaption]
     var musicURL: URL?
+    var format: ProjectFormat = .portrait
+    var look: MomentLook
+    var musicVolume: Double = 0.8
     var beatMarks: [TimeInterval]
     var created: Date
     var updated: Date
@@ -72,8 +90,9 @@ final class MomentProject {
         self.clips = []
         self.captions = template.defaultCaption.isEmpty
             ? []
-            : [MomentCaption(text: template.defaultCaption)]
+            : [MomentCaption(text: template.defaultCaption, style: template.defaultCaptionStyle)]
         self.musicURL = nil
+        self.look = template.look
         self.beatMarks = []
         self.created = .now
         self.updated = .now
@@ -111,6 +130,14 @@ final class ProjectStore {
         persist()
     }
 
+    func duplicate(_ project: MomentProject) -> MomentProject {
+        let p = MomentProject(template: project.template, title: project.title + " copy")
+        p.clips = project.clips; p.captions = project.captions; p.musicURL = project.musicURL
+        p.format = project.format; p.look = project.look; p.musicVolume = project.musicVolume; p.beatMarks = project.beatMarks
+        projects.insert(p, at: 0); draft = p; persist()
+        return p
+    }
+
     func remove(_ project: MomentProject) {
         projects.removeAll { $0.id == project.id }
         if draft?.id == project.id { draft = nil }
@@ -124,6 +151,27 @@ final class ProjectStore {
         var clips: [MomentClip]; var captions: [MomentCaption]
         var musicPath: String?; var beatMarks: [TimeInterval]
         var created: Date; var updated: Date
+        var format: ProjectFormat = .portrait
+        var look: MomentLook? = nil
+        var musicVolume: Double = 0.8
+        private enum CodingKeys: String, CodingKey { case id, title, template, clips, captions, musicPath, beatMarks, created, updated, format, look, musicVolume }
+        init(id: UUID, title: String, template: MomentTemplate, clips: [MomentClip], captions: [MomentCaption], musicPath: String?, beatMarks: [TimeInterval], created: Date, updated: Date, format: ProjectFormat, look: MomentLook?, musicVolume: Double) {
+            self.id = id; self.title = title; self.template = template; self.clips = clips; self.captions = captions
+            self.musicPath = musicPath; self.beatMarks = beatMarks; self.created = created; self.updated = updated
+            self.format = format; self.look = look; self.musicVolume = musicVolume
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(UUID.self, forKey: .id); title = try c.decode(String.self, forKey: .title)
+            template = try c.decode(MomentTemplate.self, forKey: .template)
+            clips = try c.decode([MomentClip].self, forKey: .clips); captions = try c.decode([MomentCaption].self, forKey: .captions)
+            musicPath = try c.decodeIfPresent(String.self, forKey: .musicPath)
+            beatMarks = try c.decode([TimeInterval].self, forKey: .beatMarks)
+            created = try c.decode(Date.self, forKey: .created); updated = try c.decode(Date.self, forKey: .updated)
+            format = try c.decodeIfPresent(ProjectFormat.self, forKey: .format) ?? .portrait
+            look = try c.decodeIfPresent(MomentLook.self, forKey: .look)
+            musicVolume = try c.decodeIfPresent(Double.self, forKey: .musicVolume) ?? 0.8
+        }
     }
 
     private var storeURL: URL {
@@ -137,7 +185,7 @@ final class ProjectStore {
         let stored = projects.map { p in
             Stored(id: p.id, title: p.title, template: p.template, clips: p.clips,
                    captions: p.captions, musicPath: p.musicURL?.path, beatMarks: p.beatMarks,
-                   created: p.created, updated: p.updated)
+                   created: p.created, updated: p.updated, format: p.format, look: p.look, musicVolume: p.musicVolume)
         }
         guard let data = try? JSONEncoder().encode(stored) else { return }
         try? data.write(to: storeURL, options: [.atomic, .completeFileProtection])
@@ -150,6 +198,7 @@ final class ProjectStore {
             let p = MomentProject(template: s.template, title: s.title)
             p.id = s.id; p.clips = s.clips; p.captions = s.captions
             p.musicURL = s.musicPath.map { URL(fileURLWithPath: $0) }
+            p.format = s.format; if let l = s.look { p.look = l }; p.musicVolume = s.musicVolume
             p.beatMarks = s.beatMarks; p.created = s.created; p.updated = s.updated
             return p
         }

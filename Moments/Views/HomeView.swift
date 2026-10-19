@@ -11,7 +11,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 28) {
                 header
                 beatBanner
-                section(title: "templates") {
+                section(title: "templates — look & transition render into your export") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
                         ForEach(MomentTemplate.catalogue) { t in
                             Button {
@@ -141,10 +141,13 @@ struct TemplateCard: View {
                 )
                 .aspectRatio(3 / 4, contentMode: .fit)
                 .overlay(alignment: .bottomLeading) {
-                    Text(template.kind.rawValue)
-                        .font(.caption2.weight(.semibold))
-                        .padding(10)
-                        .foregroundStyle(.white.opacity(0.85))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(template.kind.rawValue).font(.caption2.weight(.semibold))
+                        Text("\(template.look.label) · \(template.transition.label)")
+                            .font(.caption2).foregroundStyle(.white.opacity(0.75))
+                    }
+                    .padding(10)
+                    .foregroundStyle(.white.opacity(0.9))
                 }
             Text(template.title)
                 .font(.subheadline.weight(.semibold))

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import AVFoundation
+import CoreImage
 import Foundation
 
 /// On-device onset detection for beat sync. Energy envelope over PCM — no cloud.
@@ -124,5 +125,41 @@ enum BeatSync {
         }
         if peaks.last != duration { peaks.append(duration) }
         return peaks
+    }
+}
+
+
+/// Auto-fit: score each clip on device (colour + sharpness proxy from a frame),
+/// put the strongest shot first, then re-time the rest to the beats if music exists.
+enum AutoFit {
+    static func order(_ clips: [MomentClip]) async -> [MomentClip] {
+        var scored: [(clip: MomentClip, score: Double)] = []
+        for clip in clips { scored.append((clip, await score(clip))) }
+        return scored.sorted { $0.score > $1.score }.map { $0.clip }
+    }
+
+    private static func score(_ clip: MomentClip) async -> Double {
+        let image: CIImage?
+        if clip.isPhoto {
+            image = CIImage(contentsOf: clip.url)
+        } else {
+            let asset = AVURLAsset(url: clip.url)
+            let gen = AVAssetImageGenerator(asset: asset); gen.appliesPreferredTrackTransform = true
+            gen.maximumSize = CGSize(width: 320, height: 320)
+            if let cg = try? gen.copyCGImage(at: CMTime(seconds: min(0.5, max(0, clip.duration - 0.1)), preferredTimescale: 600), actualTime: nil) { image = CIImage(cgImage: cg) } else { image = nil }
+        }
+        guard let image, image.extent.width > 1 else { return clip.isPhoto ? 0.4 : 0.3 }
+        // Colourfulness: saturation of the area average; sharpness proxy: saturation * extent detail.
+        guard let avg = CIFilter(name: "CIAreaAverage") else { return 0.5 }
+        avg.setValue(image, forKey: kCIInputImageKey)
+        avg.setValue(CIVector(cgRect: image.extent), forKey: "inputExtent")
+        guard let out = avg.outputImage else { return 0.5 }
+        var px = [UInt8](repeating: 0, count: 4)
+        CIContext().render(out, toBitmap: &px, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        let r = Double(px[0]) / 255, g = Double(px[1]) / 255, b = Double(px[2]) / 255
+        let mx = max(r, g, b), mn = min(r, g, b)
+        let saturation = mx > 0 ? (mx - mn) / mx : 0
+        let liveness = 1 - abs(mx - 0.55) // avoid blown-out / crushed frames
+        return saturation * 0.7 + liveness * 0.3 + (clip.isPhoto ? 0 : 0.05)
     }
 }
