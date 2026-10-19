@@ -1,4 +1,4 @@
-# Install khėnsu.ñü and nu.waves from GitHub
+# Install khėnsu.ñü, nu.waves and nu.moments from GitHub
 
 Source of truth: [github.com/elliott-wave-labs/khensu-apple](https://github.com/elliott-wave-labs/khensu-apple). The App Store is the usual path when Apple lists the apps; this page is the fallback when it does not, and for anyone who wants to build from the same tree we ship.
 
@@ -7,10 +7,11 @@ Source of truth: [github.com/elliott-wave-labs/khensu-apple](https://github.com/
 1. Open [waves.khensu.nu](https://waves.khensu.nu/) in Safari on iPhone or iPad.
 2. Share → **Add to Home Screen**. That is the nu.waves PWA; it plays without the App Store.
 3. For the messenger, use the site until an IPA or App Store listing is live: [khensu.nu](https://khensu.nu/).
+4. Product page for the editor: [moments.khensu.nu](https://moments.khensu.nu/) (also [khensu.nu/moments](https://khensu.nu/moments)).
 
 ## Install an IPA from a GitHub Release
 
-When a Release on this repo attaches `nu.waves.ipa` or `khensu.nu.ipa`:
+When a Release on this repo attaches `nu.waves.ipa`, `nu.moments.ipa` or `khensu.nu.ipa`:
 
 1. On a Mac with a free or paid Apple ID, install [Sideloadly](https://sideloadly.io/) or [AltServer](https://altstore.io/).
 2. Download the `.ipa` from the Release assets.
@@ -30,13 +31,14 @@ xcodegen generate
 open Ptah.xcodeproj
 ```
 
-In Xcode: select the **Waves** or **Ptah** scheme, your team (`LHS49D8RYY` for Elliott Wave LLC, or your own), a plugged-in iPhone, then Run. Automatic signing is enough for a personal device.
+In Xcode: select the **Moments**, **Waves** or **Ptah** scheme, your team (`LHS49D8RYY` for Elliott Wave LLC, or your own), a plugged-in iPhone, then Run. Automatic signing is enough for a personal device. nu.moments, nu.waves and the messenger share App Group `group.nu.khensu.ptah`.
 
 ### Archive for App Store Connect
 
 ```sh
-scripts/archive-ptah.sh    # khėnsu.ñü → ~/Desktop/khensu-ptah-submit/
-scripts/archive-waves.sh   # nu.waves → ~/Desktop/khensu-waves-submit/
+scripts/archive-ptah.sh      # khėnsu.ñü → ~/Desktop/khensu-ptah-submit/
+scripts/archive-waves.sh     # nu.waves → ~/Desktop/khensu-waves-submit/
+scripts/archive-moments.sh   # nu.moments → ~/Desktop/khensu-moments-submit/
 ```
 
 Each writes an `.xcarchive` and, when export succeeds, an `.ipa` beside it. Open the archive in Xcode Organizer → Distribute App → App Store Connect, or export with the matching `ExportOptions-AppStore.plist`. Upload needs an App Store Connect API key (`AuthKey_*.p8`) or a signed-in Xcode account.

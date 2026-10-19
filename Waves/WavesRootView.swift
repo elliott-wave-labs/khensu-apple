@@ -8,10 +8,18 @@ import WebKit
 /// App Group `group.nu.khensu.ptah` stays in entitlements for shared media with khensu.nu.
 struct WavesRootView: View {
     var body: some View {
-        WavesWebView(url: URL(string: "https://waves.khensu.nu")!)
-            .ignoresSafeArea()
-            .background(Color.black)
-            .onAppear { WavesAudioSession.activatePlayback() }
+        TabView {
+            Tab("Listen", systemImage: "waveform") {
+                WavesWebView(url: URL(string: "https://waves.khensu.nu")!)
+                    .ignoresSafeArea()
+                    .background(Color.black)
+                    .onAppear { WavesAudioSession.activatePlayback() }
+            }
+            Tab("Universes", systemImage: "sparkles") {
+                UniversesView()
+            }
+        }
+        .background(Color.black)
     }
 }
 

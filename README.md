@@ -12,7 +12,7 @@ khensu.nu for iPhone, iPad and Mac (`nu.khensu.ptah`). SwiftUI with stock Liquid
 
 ## Install without the App Store
 
-See [`docs/INSTALL.md`](docs/INSTALL.md): PWA at [waves.khensu.nu](https://waves.khensu.nu/), build from this repo, or sideload a Release IPA. Archive nu.waves for App Store Connect with `scripts/archive-waves.sh`.
+See [`docs/INSTALL.md`](docs/INSTALL.md): PWA at [waves.khensu.nu](https://waves.khensu.nu/), product page at [khensu.nu/moments](https://khensu.nu/moments), build from this repo, or sideload a Release IPA. Archive with `scripts/archive-waves.sh` / `scripts/archive-moments.sh` / `scripts/archive-ptah.sh`.
 
 ## Build
 
