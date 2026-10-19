@@ -6,14 +6,31 @@ import WebKit
 /// nu.waves companion: WKWebView over waves.khensu.nu with native bridges for
 /// AirPods head pose, Music library (`nu-local:`), and background audio.
 /// App Group `group.nu.khensu.ptah` stays in entitlements for shared media with khensu.nu.
+extension View {
+    /// Header below the status bar, on a blurred/dimmed bar.
+    func wavesNavChrome() -> some View {
+        self
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+    }
+}
+
 struct WavesRootView: View {
     var body: some View {
         TabView {
             Tab("Listen", systemImage: "waveform") {
-                WavesWebView(url: URL(string: "https://waves.khensu.nu")!)
-                    .ignoresSafeArea()
-                    .background(Color.black)
-                    .onAppear { WavesAudioSession.activatePlayback() }
+                NavigationStack {
+                    // No .ignoresSafeArea: the web page starts below the
+                    // blurred navigation/status bar, never under the clock.
+                    WavesWebView(url: URL(string: "https://waves.khensu.nu")!)
+                        .background(Color.black)
+                        .navigationTitle("nu.waves")
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        #endif
+                        .wavesNavChrome()
+                        .onAppear { WavesAudioSession.activatePlayback() }
+                }
             }
             Tab("Universes", systemImage: "sparkles") {
                 UniversesView()
@@ -47,7 +64,7 @@ struct WavesWebView: UIViewRepresentable {
         v.isOpaque = false
         v.backgroundColor = .black
         v.scrollView.backgroundColor = .black
-        v.scrollView.contentInsetAdjustmentBehavior = .never
+        v.scrollView.contentInsetAdjustmentBehavior = .automatic
         v.allowsBackForwardNavigationGestures = false
         context.coordinator.bridge.attach(to: v)
         context.coordinator.webView = v

@@ -86,6 +86,10 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .appNavChrome()
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .navigationDestination(for: Page.self) { page in
                 switch page {
                 case .profile: ProfileView()

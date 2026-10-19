@@ -50,6 +50,7 @@ struct ConversationView: View {
             }
         }
         .navigationTitle(conversation?.title ?? "")
+        .appNavChrome()
         .navigationSubtitle(subtitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

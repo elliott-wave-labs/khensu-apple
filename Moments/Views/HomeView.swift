@@ -55,8 +55,9 @@ struct HomeView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .navigationTitle("ñü.mømëntš")
+        .momentsNavChrome()
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
     }
 

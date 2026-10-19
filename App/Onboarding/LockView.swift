@@ -10,6 +10,7 @@ struct LockView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            StatusBarScrim()
             DotNetwork(count: 110, opacity: 0.6)
                 .frame(maxWidth: 640, maxHeight: 640)
             VStack(spacing: 16) {

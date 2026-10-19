@@ -36,6 +36,7 @@ private struct WelcomeView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            StatusBarScrim()
             DotNetwork(count: 90, opacity: 0.55)
                 .frame(maxWidth: 520, maxHeight: 520)
                 .offset(y: -120)

@@ -2,6 +2,15 @@
 
 import SwiftUI
 
+extension View {
+    /// Header below the status bar, on a blurred/dimmed bar.
+    func momentsNavChrome() -> some View {
+        self
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+    }
+}
+
 struct MomentsRootView: View {
     @Environment(ProjectStore.self) private var store
     @State private var path = NavigationPath()

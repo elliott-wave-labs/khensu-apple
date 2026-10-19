@@ -63,6 +63,10 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("Search")
+            .appNavChrome()
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .searchable(text: $query, prompt: "Messages, chats, people")
             .task(id: query) {
                 try? await Task.sleep(for: .milliseconds(150))

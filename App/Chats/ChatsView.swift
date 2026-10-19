@@ -132,6 +132,10 @@ struct ChatListView: View {
             if !showArchived { FolderBar(folder: $folder, unread: model.conversations) }
         }
         .navigationTitle(showArchived ? "Archived" : "Chats")
+        .appNavChrome()
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             if showArchived {
                 ToolbarItem(placement: .cancellationAction) {

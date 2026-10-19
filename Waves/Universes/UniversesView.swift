@@ -31,6 +31,10 @@ public struct UniversesView: View {
                 }
             }
             .navigationTitle("nu.universes")
+            .wavesNavChrome()
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("nu.u · part of nu.waves").font(.caption).foregroundStyle(.secondary)

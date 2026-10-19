@@ -33,6 +33,7 @@ struct ProjectEditorView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .navigationTitle(project.title)
+        .momentsNavChrome()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

@@ -47,6 +47,10 @@ struct FeedView: View {
                 .frame(maxWidth: .infinity)
             }
             .navigationTitle("Feed")
+            .appNavChrome()
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
         }
     }
 }

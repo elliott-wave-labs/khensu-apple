@@ -99,6 +99,10 @@ struct CallsView: View {
                 }
             }
             .navigationTitle("Calls")
+            .appNavChrome()
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .task { nearby.start() }
             .onDisappear { nearby.stop() }
         }
