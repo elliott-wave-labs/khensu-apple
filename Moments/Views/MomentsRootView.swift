@@ -5,9 +5,13 @@ import SwiftUI
 extension View {
     /// Header below the status bar, on a blurred/dimmed bar.
     func momentsNavChrome() -> some View {
+        #if os(iOS)
         self
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+        #else
+        self
+        #endif
     }
 }
 

@@ -3,8 +3,10 @@
 import AVFoundation
 import CoreImage
 import Foundation
+import ImageIO
 import Photos
 import Speech
+import UniformTypeIdentifiers
 import Vision
 #if canImport(UIKit)
 import UIKit
@@ -18,71 +20,99 @@ enum AutoCaptions {
         var errorDescription: String? {
             switch self {
             case .notAuthorized: "Speech recognition is off for nu.moments. Turn it on in Settings, or type captions instead."
-            case .noAudio: "That clip has no audio to caption. Add a clip with sound, or type captions."
-            case .noSpeech: "No speech was heard in that clip on this device."
+            case .noAudio: "There is no sound to caption. Add a clip with speech or record a voice-over, or type captions."
+            case .noSpeech: "No speech was heard on this device."
             }
         }
     }
 
+    /// Captions every clip with sound (and the voice-over), with word timings placed on the timeline.
     static func captions(for project: ExportSnapshot) async throws -> [MomentCaption] {
-        guard let clip = project.clips.first(where: { !$0.isPhoto }) else { throw CaptionsError.noAudio }
-        let audioURL = try await extractAudio(from: clip)
-        return try await transcribe(audioURL: audioURL, style: .pop)
+        try await authorize()
+        let starts = Timeline.starts(clips: project.clips, layout: project.layout)
+        var words: [CaptionWord] = []
+        var heardAudio = false
+        for clip in project.clips where !clip.isPhoto && !clip.muted && !clip.reversed {
+            guard let audio = try? await extractAudio(from: clip) else { continue }
+            heardAudio = true
+            let t0 = starts[clip.id] ?? 0
+            let speed = max(clip.speed, 0.25)
+            for w in (try? await transcribe(audio)) ?? [] {
+                let s = t0 + w.start / speed
+                guard s < t0 + clip.outDuration else { continue }
+                words.append(CaptionWord(text: w.text, start: s, duration: w.duration / speed))
+            }
+        }
+        if let vo = project.voiceoverURL {
+            heardAudio = true
+            words += (try? await transcribe(vo)) ?? []
+        }
+        guard heardAudio else { throw CaptionsError.noAudio }
+        guard !words.isEmpty else { throw CaptionsError.noSpeech }
+        return group(words.sorted { $0.start < $1.start }, style: .pop)
+    }
+
+    /// Short caption lines (about 2.2 s or 5 words), each keeping its word timings.
+    static func group(_ words: [CaptionWord], style: CaptionStyle) -> [MomentCaption] {
+        var out: [MomentCaption] = []
+        var line: [CaptionWord] = []
+        func flush() {
+            guard let first = line.first, let last = line.last else { return }
+            let end = last.start + last.duration
+            out.append(MomentCaption(text: line.map(\.text).joined(separator: " "), style: style,
+                                     start: first.start, duration: max(0.8, end - first.start), words: line))
+            line = []
+        }
+        for w in words {
+            if let first = line.first, w.start - first.start > 2.2 || line.count >= 5 { flush() }
+            line.append(w)
+        }
+        flush()
+        return out
+    }
+
+    private static func authorize() async throws {
+        let status = await withCheckedContinuation { (c: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }
+        }
+        guard status == .authorized else { throw CaptionsError.notAuthorized }
     }
 
     private static func extractAudio(from clip: MomentClip) async throws -> URL {
         let asset = AVURLAsset(url: clip.url)
         guard try await !asset.loadTracks(withMediaType: .audio).isEmpty else { throw CaptionsError.noAudio }
-        let out = MediaImport.mediaDir.appendingPathComponent("caption-audio-\(UUID().uuidString).m4a")
-        try? FileManager.default.removeItem(at: out)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("caption-audio-\(UUID().uuidString).m4a")
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else { throw CaptionsError.noAudio }
-        session.outputURL = out
-        session.outputFileType = .m4a
-        let range = CMTimeRange(start: CMTime(seconds: clip.inPoint, preferredTimescale: 600),
-                                duration: CMTime(seconds: min(clip.outDuration * max(clip.speed, 0.25), clip.duration), preferredTimescale: 600))
-        session.timeRange = range
-        await session.export()
-        guard session.status == .completed else { throw CaptionsError.noAudio }
+        session.timeRange = CMTimeRange(start: CMTime(seconds: clip.inPoint, preferredTimescale: 600),
+                                        duration: CMTime(seconds: min(clip.outDuration * max(clip.speed, 0.25), clip.duration - clip.inPoint), preferredTimescale: 600))
+        do { try await session.export(to: out, as: .m4a) } catch { throw CaptionsError.noAudio }
         return out
     }
 
-    private static func transcribe(audioURL: URL, style: CaptionStyle) async throws -> [MomentCaption] {
-        let status = await withCheckedContinuation { (c: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
-            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }
-        }
-        guard status == .authorized else { throw CaptionsError.notAuthorized }
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else { throw CaptionsError.noSpeech }
+    /// Word timings in the file's own time.
+    private static func transcribe(_ audioURL: URL) async throws -> [CaptionWord] {
+        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else { throw CaptionsError.noSpeech }
         let request = SFSpeechURLRecognitionRequest(url: audioURL)
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
-        struct Seg: Sendable { var text: String; var timestamp: TimeInterval; var duration: TimeInterval }
-        let segments: [Seg] = try await withCheckedThrowingContinuation { cont in
+        request.addsPunctuation = true
+        return try await withCheckedThrowingContinuation { cont in
+            let once = OnceFlag()
             recognizer.recognitionTask(with: request) { r, e in
-                if let e { cont.resume(throwing: e); return }
-                if let r, r.isFinal {
-                    cont.resume(returning: r.bestTranscription.segments.map { Seg(text: $0.substring, timestamp: $0.timestamp, duration: $0.duration) })
+                if let e { if once.take() { cont.resume(throwing: e) }; return }
+                if let r, r.isFinal, once.take() {
+                    cont.resume(returning: r.bestTranscription.segments.map { CaptionWord(text: $0.substring, start: $0.timestamp, duration: $0.duration) })
                 }
             }
         }
-        guard !segments.isEmpty else { throw CaptionsError.noSpeech }
-        // Group words into short caption lines (~2.2s each).
-        var captions: [MomentCaption] = []
-        var words: [String] = []
-        var start: TimeInterval = segments.first?.timestamp ?? 0
-        var lastEnd: TimeInterval = start
-        func flush() {
-            guard !words.isEmpty else { return }
-            captions.append(MomentCaption(text: words.joined(separator: " "), style: style, start: start, duration: max(0.8, lastEnd - start)))
-            words = []
-        }
-        for seg in segments {
-            if seg.timestamp - start > 2.2, !words.isEmpty { flush(); start = seg.timestamp }
-            words.append(seg.text)
-            lastEnd = seg.timestamp + seg.duration
-        }
-        flush()
-        return captions
     }
+}
+
+/// Guards a continuation against a second resume.
+final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func take() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
 }
 
 /// Generates a simple kick/hat beat track (WAV) at a BPM, on device — no catalogue needed.
@@ -166,66 +196,116 @@ enum SubjectLift {
     }
 }
 
-/// Save finished reels / carousel slides to the user's photo library (add-only).
+/// Save finished reels and carousel slides to the photo library (add-only).
 enum PhotosSave {
-    static func saveVideo(_ url: URL) async throws {
+    private static func authorize() async throws {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
             throw NSError(domain: "nu.moments", code: 1, userInfo: [NSLocalizedDescriptionKey: "Photo library add access is off. Export and use Share instead."])
         }
-        try await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url) }
     }
-    static func saveImages(_ urls: [URL]) async throws {
-        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard status == .authorized || status == .limited else {
-            throw NSError(domain: "nu.moments", code: 1, userInfo: [NSLocalizedDescriptionKey: "Photo library add access is off. Export and use Share instead."])
-        }
+    static func saveVideo(_ url: URL) async throws { try await save([url]) }
+    static func saveImages(_ urls: [URL]) async throws { try await save(urls) }
+    /// Photos and videos in order (a mixed carousel).
+    static func save(_ urls: [URL]) async throws {
+        try await authorize()
         try await PHPhotoLibrary.shared().performChanges {
-            for u in urls { PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: u) }
+            for u in urls {
+                if ["mp4", "mov", "m4v"].contains(u.pathExtension.lowercased()) {
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: u)
+                } else {
+                    PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: u)
+                }
+            }
         }
     }
 }
 
-/// Carousel slides: one still per clip (photo, or a video frame), look + slide number burned in.
+/// Carousel slides (4:5) through the same renderer as the reel: photo slides become stills,
+/// video slides stay video. Seamless mode spreads one continuous picture across the slides.
 enum CarouselExport {
-    static func slides(for project: ExportSnapshot) async throws -> [URL] {
-        let size = CGSize(width: 1080, height: 1350)
+    static let slideSize = CGSize(width: 1080, height: 1350)
+
+    static func slides(for project: ExportSnapshot, seamless: Bool = false, panels: Int = 3) async throws -> [URL] {
+        if seamless { return try await panorama(project, panels: max(2, min(10, panels))) }
         var urls: [URL] = []
-        for (i, clip) in project.clips.enumerated() {
-            let base: CIImage
+        for (i, clip) in project.clips.prefix(20).enumerated() {
+            let one = project.with(clips: [clip], layout: .single, format: .story, keepAudio: !clip.isPhoto)
             if clip.isPhoto {
-                guard let img = CIImage(contentsOf: clip.url) else { continue }
-                base = img
+                let cg = try await CompositionExport.frame(one, at: min(1.2, clip.outDuration * 0.6), maxSize: slideSize, preview: false)
+                urls.append(try writeJPEG(cg, name: "slide-\(i + 1)-\(project.id.uuidString.prefix(6))"))
             } else {
-                let asset = AVURLAsset(url: clip.url)
-                let gen = AVAssetImageGenerator(asset: asset); gen.appliesPreferredTrackTransform = true
-                gen.maximumSize = CGSize(width: 1080, height: 1350)
-                let cg = try gen.copyCGImage(at: CMTime(seconds: clip.inPoint + 0.4, preferredTimescale: 600), actualTime: nil)
-                base = CIImage(cgImage: cg)
+                let mov = try await CompositionExport.export(one)
+                let dest = FileManager.default.temporaryDirectory.appendingPathComponent("slide-\(i + 1)-\(project.id.uuidString.prefix(6)).mp4")
+                try? FileManager.default.removeItem(at: dest)
+                try FileManager.default.moveItem(at: mov, to: dest)
+                urls.append(dest)
             }
-            let scale = max(size.width / base.extent.width, size.height / base.extent.height)
-            var img = base.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            let dx = (size.width - img.extent.width) / 2 - img.extent.minX
-            let dy = (size.height - img.extent.height) / 2 - img.extent.minY
-            img = img.transformed(by: CGAffineTransform(translationX: dx, y: dy)).cropped(to: CGRect(origin: .zero, size: size))
-            img = LookFilter.apply(project.look, to: img, canvas: size)
-            guard let cg = CIContext().createCGImage(img, from: CGRect(origin: .zero, size: size)) else { continue }
-            #if canImport(UIKit)
-            let renderer = UIGraphicsImageRenderer(size: size)
-            let data = renderer.jpegData(withCompressionQuality: 0.9) { _ in
-                UIImage(cgImage: cg).draw(in: CGRect(origin: .zero, size: size))
-                let label = "\(i + 1) / \(project.clips.count)  ·  \(project.title)"
-                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: 34), .foregroundColor: UIColor.white]
-                label.draw(at: CGPoint(x: 44, y: size.height - 84), withAttributes: attrs)
-                if let cap = project.captions.first(where: { $0.start <= Double(i) * 2.4 && Double(i) * 2.4 < $0.start + $0.duration }) {
-                    (cap.text as NSString).draw(at: CGPoint(x: 44, y: size.height - 150), withAttributes: attrs)
-                }
-            }
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("slide-\(i + 1)-\(project.id.uuidString.prefix(6)).jpg")
-            try data.write(to: url); urls.append(url)
-            #endif
         }
         guard !urls.isEmpty else { throw CompositionExport.ExportError.failed("No slides could be made.") }
         return urls
+    }
+
+    /// One wide picture cut into `panels` slides that line up edge to edge when swiped.
+    /// A single photo spans every slide; several clips sit side by side with no gutters.
+    private static func panorama(_ project: ExportSnapshot, panels: Int) async throws -> [URL] {
+        let W = slideSize.width * CGFloat(panels), H = slideSize.height
+        let canvas = CGRect(x: 0, y: 0, width: W, height: H)
+        var strip = CIImage(color: CIColor(cgColor: Hex.cg(project.backdropHex))).cropped(to: canvas)
+        let clips = Array(project.clips.prefix(panels))
+        guard !clips.isEmpty else { throw CompositionExport.ExportError.empty }
+        let cellW = W / CGFloat(clips.count)
+        for (i, clip) in clips.enumerated() {
+            guard let img = try await still(of: clip) else { continue }
+            let cell = CGRect(x: CGFloat(i) * cellW, y: 0, width: cellW, height: H)
+            let s = max(cell.width / img.extent.width, cell.height / img.extent.height)
+            var placed = img.transformed(by: CGAffineTransform(scaleX: s, y: s))
+            placed = placed.transformed(by: CGAffineTransform(translationX: cell.midX - placed.extent.midX, y: cell.midY - placed.extent.midY))
+            placed = Adjust.apply(clip.adjust, to: placed, k: 1).cropped(to: cell)
+            strip = placed.composited(over: strip)
+        }
+        strip = LookFilter.apply(project.look, to: strip, canvas: canvas.size)
+        let plan = RenderPlan(canvas: canvas.size, look: project.look, transition: project.transition,
+                              backdrop: CIColor(cgColor: Hex.cg(project.backdropHex)), accent: CIColor(red: project.accentR, green: project.accentG, blue: project.accentB),
+                              effects: [], statics: [], videoOverlays: [:], captions: [], captionLook: project.captionLook)
+        for o in project.overlays where o.kind != .media || !o.mediaIsVideo {
+            let img: CIImage?
+            if let url = o.mediaURL { img = CIImage(contentsOf: url) } else { img = TextRaster.overlay(o, canvasWidth: slideSize.width) }
+            guard let img else { continue }
+            strip = Overlays.place(img, overlay: o, t: o.start + o.duration / 2, plan: plan).composited(over: strip)
+        }
+        let ctx = CIContext()
+        var urls: [URL] = []
+        for p in 0..<panels {
+            let r = CGRect(x: CGFloat(p) * slideSize.width, y: 0, width: slideSize.width, height: H)
+            guard let cg = ctx.createCGImage(strip, from: r, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { continue }
+            urls.append(try writeJPEG(cg, name: "seamless-\(p + 1)-\(project.id.uuidString.prefix(6))"))
+        }
+        return urls
+    }
+
+    private static func still(of clip: MomentClip) async throws -> CIImage? {
+        if clip.isPhoto {
+            guard let src = CGImageSourceCreateWithURL(clip.url as CFURL, nil),
+                  let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                                                        kCGImageSourceCreateThumbnailWithTransform: true,
+                                                                        kCGImageSourceThumbnailMaxPixelSize: 4096] as CFDictionary) else { return nil }
+            return CIImage(cgImage: cg)
+        }
+        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: clip.sourceURL))
+        gen.appliesPreferredTrackTransform = true
+        gen.maximumSize = CGSize(width: 2160, height: 2700)
+        let (cg, _) = try await gen.image(at: CMTime(seconds: clip.inPoint + min(0.4, clip.outDuration / 2), preferredTimescale: 600))
+        return CIImage(cgImage: cg)
+    }
+
+    private static func writeJPEG(_ cg: CGImage, name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).jpg")
+        guard let d = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
+            throw CompositionExport.ExportError.failed("Slide could not be written.")
+        }
+        CGImageDestinationAddImage(d, cg, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary)
+        guard CGImageDestinationFinalize(d) else { throw CompositionExport.ExportError.failed("Slide could not be written.") }
+        return url
     }
 }
