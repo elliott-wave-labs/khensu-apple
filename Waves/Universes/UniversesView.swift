@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // nu.universes (nu.u) — SwiftUI shell inside nu.waves. Spec: design/nu-universes.md.
-// Google Maps grammar for M33: pinch to descend, wavelength = pitch for light, cosmic timeline.
+// Google Earth grammar for the universe: fly to a place, drag to turn, pinch to zoom.
 
 import SwiftUI
 
 public struct UniversesView: View {
-    @State private var scale: UniverseScale = .m33DeepMap
-    @State private var band: SpectrumBand = .visible
+    @State private var catalog = Flight.load()
+    @State private var rig = FlightRig()
     @State private var cosmicTime: CosmicTime = .today
     @State private var arEnabled = false
     @State private var atmosphereOn = false
-    @State private var archiveEpoch: String?
-    @State private var selectedLandmark: M33.Landmark?
+    @State private var immersive = false
+    @State private var deckOpen = true
+    @State private var directions: DirectionsModel?
+    @State private var showDirections = false
 
-    private var observer: Observer { Observer.from(band: band) }
     private var atmosphere: TwinklePhysics.Atmosphere { atmosphereOn ? .earthDefault : .space }
+    private let chips: [(String, String)] = [
+        ("Earth", "Earth"), ("Solar System", "Sun"), ("Alpha Centauri", "Rigil Kentaurus"), ("Milky Way", "Milky Way"),
+        ("LMC", "Large Magellanic Cloud"), ("Andromeda", "Andromeda Galaxy · M31"), ("M33", "Triangulum Galaxy · M33"),
+        ("NGC 604", "NGC 604"), ("Cosmic web", "Cosmic web"),
+    ]
 
     public init() {}
 
@@ -22,130 +28,145 @@ public struct UniversesView: View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
-                UniversesRealityView(
-                    stars: M33.demoStars(), observer: observer, cosmicTime: cosmicTime,
-                    atmosphere: atmosphere, arEnabled: arEnabled)
-                VStack {
-                    Spacer()
-                    controlDeck
+                UniversesRealityView(catalog: catalog, rig: rig, atmosphere: atmosphere, arEnabled: arEnabled)
+                if immersive {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button { setImmersive(false) } label: {
+                                Label("Exit fullscreen", systemImage: "arrow.down.right.and.arrow.up.left")
+                                    .labelStyle(.iconOnly).padding(6)
+                            }
+                            .buttonStyle(.glass)
+                        }
+                        Spacer()
+                    }
+                    .padding()
+                } else {
+                    VStack {
+                        Spacer()
+                        controlDeck
+                    }
                 }
             }
+            .inspector(isPresented: $showDirections) {
+                if let directions {
+                    DirectionsView(model: directions) { showDirections = false }
+                        .presentationDetents([.medium, .large])
+                        .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                        .inspectorColumnWidth(min: 320, ideal: 380, max: 460)
+                }
+            }
+            .onChange(of: showDirections) { _, on in if !on { directions?.clear() } else { directions?.refresh() } }
             .navigationTitle("nu.universes")
             .wavesNavChrome()
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(immersive ? .hidden : .visible, for: .navigationBar, .tabBar)
+            .statusBarHidden(immersive)
             #endif
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text("nu.u · part of nu.waves").font(.caption).foregroundStyle(.secondary)
+                    Text("nu.i.verse · part of nu.waves").font(.caption).foregroundStyle(.secondary)
                 }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Menu {
+                        ForEach(catalog.places) { p in
+                            Button(p.name) { rig.fly(to: p) }
+                        }
+                    } label: {
+                        Label("Fly to", systemImage: "magnifyingglass")
+                    }
+                    Button { showDirections.toggle() } label: {
+                        Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond")
+                    }
+                    Button { setImmersive(true) } label: {
+                        Label("Fullscreen", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
                     Button { arEnabled.toggle() } label: {
                         Label(arEnabled ? "Exit AR" : "View in AR", systemImage: arEnabled ? "xmark.viewfinder" : "arkit")
                     }
                 }
             }
-            .task {
-                archiveEpoch = await M33DataService().fetchLatestEpoch()
+            .onAppear {
+                if rig.focus == nil, let sun = catalog.places.first { rig.focus = sun }
+                if directions == nil { directions = DirectionsModel(places: catalog.places, rig: rig) }
+                if let name = UserDefaults.standard.string(forKey: "directions"),
+                   let p = catalog.places.first(where: { $0.name.localizedCaseInsensitiveContains(name) }) {
+                    directions?.to = p
+                    showDirections = true
+                }
+                if let name = UserDefaults.standard.string(forKey: "place"),
+                   let p = catalog.places.first(where: { $0.name.localizedCaseInsensitiveContains(name) }) { rig.jump(to: p) }
             }
-            .sheet(item: $selectedLandmark) { landmark in landmarkSheet(landmark) }
         }
     }
 
+    private func setImmersive(_ on: Bool) {
+        withAnimation(.easeInOut(duration: 0.25)) { immersive = on }
+    }
+
     private var controlDeck: some View {
-        VStack(spacing: 10) {
-            // Map header — like Google Maps: place name, scale, data epoch.
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(M33.name) · \(M33.messier)").font(.headline)
-                Text("2.73 Mly away · you see it as it was 2.73 Myr ago · \(archiveEpoch ?? "cached map")")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Text("54 Hubble pointings · 665 Mpx mosaic · 25M resolved stars · \(M33.credits)")
-                    .font(.caption2).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) { deckOpen.toggle() }
+            } label: {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(rig.focus?.name ?? "Sun").font(.headline)
+                        Text(rig.focus?.kind ?? "").font(.caption2).foregroundStyle(.secondary)
+                        if deckOpen, let note = rig.focus?.note {
+                            Text(note).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Text(rig.readout).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: deckOpen ? "chevron.down" : "chevron.up")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
 
-            // Scale picker (map zoom grammar).
-            Picker("Scale", selection: $scale) {
-                ForEach(UniverseScale.allCases, id: \.self) { s in Text(s.title).tag(s) }
-            }
-            .pickerStyle(.segmented)
-
-            // Landmarks — the "pins" on the galaxy map.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
-                    ForEach(M33.landmarks) { lm in
-                        Button(lm.name) { selectedLandmark = lm }
-                            .buttonStyle(.bordered).controlSize(.small)
-                    }
-                }
-            }
-
-            // Wavelength — music is only the audible band. Log slider + detents.
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Wavelength — music is only the audible band").font(.caption).foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(SpectrumBand.allCases) { b in
-                            Button {
-                                band = b
-                            } label: {
-                                Text(b.title)
-                                    .font(.caption2)
-                                    .padding(.horizontal, 8).padding(.vertical, 4)
-                                    .background(band == b ? Color.accentColor : Color.white.opacity(0.12))
-                                    .clipShape(Capsule())
-                            }
-                            .foregroundStyle(.white)
+                    ForEach(chips, id: \.0) { chip in
+                        Button(chip.0) {
+                            if let p = catalog.places.first(where: { $0.name == chip.1 }) { rig.fly(to: p) }
                         }
+                        .buttonStyle(.bordered).controlSize(.small)
                     }
-                }
-                if band == .mantis {
-                    Text("Mantis · 19 channels (12 spectral + polarisation). False colour — mapped for your eyes. Things you call one colour separate here.")
-                        .font(.caption2).foregroundStyle(.orange)
-                } else if band == .audible {
-                    Text("Sonified through nu.waves — brightness is loudness, polarisation is position in the spacetime bubble.")
-                        .font(.caption2).foregroundStyle(.orange)
-                } else if band != .visible {
-                    Text("\(band.title) · false colour — mapped for your eyes.").font(.caption2).foregroundStyle(.orange)
                 }
             }
 
-            // Cosmic timeline — Big Bang → today → predicted.
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text("Big Bang").font(.caption2)
-                    Spacer()
-                    Text(cosmicTime.label).font(.caption2).foregroundStyle(cosmicTime.isPrediction ? .orange : .secondary)
-                    Spacer()
-                    Text("+10 Gyr").font(.caption2)
-                }
-                Slider(value: Binding(
-                    get: { cosmicTime.gyrAfterBigBang },
-                    set: { cosmicTime = CosmicTime(gyrAfterBigBang: $0) }),
-                    in: 0...23.8)
-                HStack {
-                    Toggle("Earth atmosphere (real scintillation)", isOn: $atmosphereOn)
-                        .font(.caption2)
-                    Spacer()
-                    Text(atmosphereOn ? "Stars twinkle: Earth's air" : "In space, stars do not twinkle")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
+            if deckOpen { deckControls }
         }
         .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
         .padding(.horizontal, 10).padding(.bottom, 8)
     }
 
-    private func landmarkSheet(_ landmark: M33.Landmark) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(landmark.name).font(.title3.bold())
-            Text(landmark.detail)
-            Text("Size ~\(Int(landmark.sizeLy)) ly · tap a wavelength above to see it change.")
-                .font(.caption).foregroundStyle(.secondary)
-            Spacer()
+    @ViewBuilder private var deckControls: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("Big Bang").font(.caption2)
+                Spacer()
+                Text(cosmicTime.label).font(.caption2).foregroundStyle(cosmicTime.isPrediction ? .orange : .secondary)
+                Spacer()
+                Text("+10 Gyr").font(.caption2)
+            }
+            Slider(value: Binding(
+                get: { cosmicTime.gyrAfterBigBang },
+                set: { cosmicTime = CosmicTime(gyrAfterBigBang: $0) }),
+                in: 0...23.8)
+            HStack {
+                Toggle("Earth atmosphere (real scintillation)", isOn: $atmosphereOn)
+                    .font(.caption2)
+                Spacer()
+                Text(atmosphereOn ? "From Earth, stars twinkle" : "In space, stars do not twinkle")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
-        .padding()
-        .presentationDetents([.fraction(0.35)])
     }
 }

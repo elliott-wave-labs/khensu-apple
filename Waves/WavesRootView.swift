@@ -8,10 +8,14 @@ import WebKit
 /// App Group `group.nu.khensu.ptah` stays in entitlements for shared media with khensu.nu.
 extension View {
     /// Header below the status bar, on a blurred/dimmed bar.
-    func wavesNavChrome() -> some View {
+    @ViewBuilder func wavesNavChrome() -> some View {
+        #if os(iOS)
         self
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+        #else
+        self
+        #endif
     }
 }
 

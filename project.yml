@@ -229,6 +229,8 @@ targets:
         INFOPLIST_KEY_NSMotionUsageDescription: Head tracking from your headphones so sounds stay where you placed them. Pose never leaves the device.
         INFOPLIST_KEY_NSCameraUsageDescription: Optional face tracking for listening, and AR in nu.universes to place galaxies in your room and over the real sky. Frames stay on this device and are never sent.
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Captions for spoken tracks run only on this device. Nothing is sent to Apple or anyone else for speech recognition.
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Which galaxies are above your horizon right now, so their rabbitholes open in nu.universes. Your location stays on this device and is never sent.
+        INFOPLIST_KEY_NSLocationUsageDescription: Which galaxies are above your horizon right now, so their rabbitholes open in nu.universes. Your location stays on this device and is never sent.
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark

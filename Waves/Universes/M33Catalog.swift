@@ -29,56 +29,24 @@ public enum M33 {
         /// Offset from M33 centre, light-years (disc plane, face-on approximation for v1 map).
         public let offsetLy: SIMD2<Double>
         public let sizeLy: Double
+        /// Position in the bundled heic1901a mosaic (0…1, top-left origin); nil when outside the frame.
+        public var mapUV: SIMD2<Float>? = nil
     }
 
     public static let landmarks: [Landmark] = [
         Landmark(id: "centre", name: "M33 centre", detail: "No bright bulge, no bar — a pure disc nucleus.",
-                 offsetLy: SIMD2(0, 0), sizeLy: 2_000),
+                 offsetLy: SIMD2(0, 0), sizeLy: 2_000, mapUV: SIMD2(0.446, 0.61)),
         Landmark(id: "ngc604", name: "NGC 604", detail: "Giant H II region · ~1,500 ly across · >200 hot massive young stars · 40× the visible Orion Nebula.",
-                 offsetLy: SIMD2(9_000, 5_500), sizeLy: 1_500),
+                 offsetLy: SIMD2(9_000, 5_500), sizeLy: 1_500, mapUV: SIMD2(0.92, 0.05)),
         Landmark(id: "ngc595", name: "NGC 595", detail: "Diffuse H II region · among the four brightest in the Hubble survey.",
-                 offsetLy: SIMD2(-6_500, 3_800), sizeLy: 800),
+                 offsetLy: SIMD2(-6_500, 3_800), sizeLy: 800, mapUV: SIMD2(0.49, 0.96)),
         Landmark(id: "pisces-dwarf", name: "Pisces Dwarf Galaxy", detail: "Small satellite of M33.",
                  offsetLy: SIMD2(28_000, -18_000), sizeLy: 3_000),
     ]
 
-    /// Hero stars inside the mosaic footprint (illustrative bright end; full set streams as tiles).
-    /// Positions are disc-plane ly offsets; temperatures/magnitudes are class-typical for the demo set.
-    public static func demoStars() -> [StarBody] {
-        var stars: [StarBody] = []
-        var rng = SplitMix64(seed: 33)
-        for i in 0..<1_200 {
-            // Logarithmic two-arm spiral, face-on.
-            let arm = i % 2 == 0 ? 0.0 : Double.pi
-            let r = 2_000 + 26_000 * pow(rng.nextDouble(), 1.6)
-            let theta = arm + log(r / 2_000) * 1.1 + rng.nextDouble() * 0.35
-            let x = r * cos(theta), y = r * sin(theta)
-            let temp = 3_200 + rng.nextDouble() * 9_000
-            let mag = 14 + rng.nextDouble() * 8
-            let variability: Variability = (i % 97 == 0)
-                ? .cepheid(periodDays: 4 + rng.nextDouble() * 40, amplitudeMag: 0.7)
-                : .steady
-            stars.append(StarBody(
-                id: "m33-\(i)", name: i == 0 ? "M33 Cepheid (demo)" : "M33 star",
-                positionPc: SIMD3<Double>(x * 0.3066, y * 0.3066, (rng.nextDouble() - 0.5) * 300),
-                temperatureK: temp, apparentMagnitude: mag, variability: variability))
-        }
-        return stars
-    }
-}
-
-/// Deterministic RNG for demo data (never for crypto).
-public struct SplitMix64: Sendable {
-    public var state: UInt64
-    public init(seed: UInt64) { state = seed }
-    public mutating func nextUInt() -> UInt64 {
-        state &+= 0x9E3779B97F4A7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
-        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
-        return z ^ (z >> 31)
-    }
-    public mutating func nextDouble() -> Double { Double(nextUInt() >> 11) / Double(1 << 53) }
+    /// The bundled Hubble mosaic (ESA/Hubble heic1901a, 4000 × 2251).
+    public static let mosaicResource = "m33-hubble"
+    public static let mosaicAspect: Float = 4000.0 / 2251.0
 }
 
 // MARK: - Live tile manifest (§4)
