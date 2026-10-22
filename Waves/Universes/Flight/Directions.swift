@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // nu.universes directions, like Google Maps for space: milestones on the straight path between two places,
 // travel time by light (real) and by spacetime bubble (a hypothetical warp drive), and rabbitholes, the
-// wormhole network. Same rules as khensu-site src/scripts/universes/route.ts. Spec: design/nu-universes.md §11.
+// wormhole network. Same rules as khensu-site src/scripts/universes/route.ts. Spec: design/nu-universes.md §15.
 
 import Foundation
 import simd
@@ -110,8 +110,23 @@ enum Directions {
         return hypot(g.x - Flight.sunR, g.y) < 15_000 && abs(g.z + Flight.sunZ) < 1_000
     }
 
+    private static func orbit(_ name: String, _ au: Double, _ note: String) -> (r: Double, out: String, note: String, inward: String) {
+        (au * Flight.au, "Cross \(name)’s orbit", note, "Cross \(name)’s orbit")
+    }
     private static let shells: [(r: Double, out: String, note: String, inward: String)] = [
+        orbit("Mercury", 0.387, "The innermost planet, 58 million km from the Sun."),
+        orbit("Venus", 0.723, "The hottest planet, under clouds of sulphuric acid."),
+        orbit("Earth", 1, "Home: 150 million km from the Sun, 8 light-minutes."),
+        orbit("Mars", 1.524, "The red planet, 12.7 light-minutes from the Sun."),
+        (2.2 * Flight.au, "Enter the asteroid belt", "Millions of rocks, but so spread out that spacecraft cross without dodging.", "Leave the asteroid belt"),
+        (3.3 * Flight.au, "Leave the asteroid belt", "Next is Jupiter, more than twice as massive as all the other planets together.", "Enter the asteroid belt"),
+        orbit("Jupiter", 5.203, "The largest planet; its gravity shapes the asteroid belt."),
+        orbit("Saturn", 9.537, "The ringed planet, 80 light-minutes from the Sun."),
+        orbit("Uranus", 19.19, "The ice giant that rolls on its side."),
+        (30.07 * Flight.au, "Cross Neptune’s orbit into the Kuiper belt", "The last planet. Beyond it, the icy Kuiper belt, home of Pluto.", "Cross Neptune’s orbit"),
+        (50 * Flight.au, "Leave the Kuiper belt", "Past the main belt of icy worlds; scattered objects like Eris and Sedna roam beyond.", "Enter the Kuiper belt"),
         (120 * Flight.au, "Cross the heliopause", "The solar wind ends and interstellar space begins (Voyager 1, 2012).", "Cross the heliopause into the Sun’s wind"),
+        (2_000 * Flight.au, "Enter the Oort cloud", "The inner edge of the Sun’s shell of comets, roughly 2,000 AU out. Nobody has seen it directly; long-period comets show it is there.", "Leave the Oort cloud"),
         (100_000 * Flight.au, "Leave the Oort cloud", "The outer edge of the Sun’s comets, about 1.6 light-years out.", "Enter the Oort cloud"),
         (150, "Leave the Local Bubble", "The hot cavity, about 1,000 light-years across, blown by supernovae around the Sun.", "Enter the Local Bubble"),
     ]
@@ -129,12 +144,13 @@ enum Directions {
             if s < d { set.insert(s); set.insert(d - s) }
         }
         let ss = set.sorted()
+        let ra = simd_length(a.position), rb = simd_length(b.position)
         let regions = places.filter { $0.radius != nil && $0 != a && $0 != b && $0.name != "Milky Way" }
         var steps = [Step(text: "Leave \(a.name)", detail: heading(dir), position: a.position, view: a.view, along: 0, place: a)]
         for i in 1..<ss.count {
             let p0 = at(ss[i - 1]), p1 = at(ss[i])
             let r0 = simd_length(p0), r1 = simd_length(p1)
-            for sh in shells where (r0 - sh.r) * (r1 - sh.r) < 0 {
+            for sh in shells where (r0 - sh.r) * (r1 - sh.r) < 0 && abs(ra - sh.r) > 0.05 * sh.r && abs(rb - sh.r) > 0.05 * sh.r {
                 steps.append(Step(text: r1 > r0 ? sh.out : sh.inward, detail: sh.note, position: p1, view: max(sh.r * 2, 1e-4), along: ss[i]))
             }
             let d0 = inDisc(p0), d1 = inDisc(p1)
@@ -233,6 +249,10 @@ enum Directions {
     }
 
     static func years(_ pc: Double, timesLight: Double) -> Double { pc / Flight.lightYear / timesLight }
+
+    /// Parker Solar Probe's record, 191.7 km/s on 24 December 2024: the fastest any spacecraft has gone.
+    static let spacecraftKms = 191.7
+    static let spacecraft = spacecraftKms / 299_792.458
 
     static func durationText(years y: Double) -> String {
         let s = y * 365.25 * 86_400

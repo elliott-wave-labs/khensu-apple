@@ -44,6 +44,10 @@ enum Flight {
         var facing: SIMD3<Double>? = nil
         /// Extent (pc) for entering and leaving it on a route; nil for points.
         var radius: Double? = nil
+        /// The body or region it belongs to, for the place list (a moon's planet, a comet's "Comets").
+        var parent: String? = nil
+        /// Sort key among the Solar System's top-level entries (au from the Sun).
+        var order: Double? = nil
     }
 
     /// Mostly face-on to a disc, tipped 35° toward the Sun so the view keeps our side of it.
@@ -92,6 +96,51 @@ enum Flight {
         let ce = cos(obliquity), se = sin(obliquity)
         return SIMD3(x, y * ce - z * se, y * se + z * ce) * au
     }
+
+    static func eclipticToEquatorial(_ x: Double, _ y: Double, _ z: Double) -> SIMD3<Double> {
+        let ce = cos(obliquity), se = sin(obliquity)
+        return SIMD3(x, y * ce - z * se, y * se + z * ce) * au
+    }
+
+    /// Heliocentric equatorial position (pc) from osculating elements: a (au), e, i, node, argument of perihelion, mean anomaly (deg).
+    static func kepler(a: Double, e: Double, i: Double, node: Double, peri: Double, M: Double) -> SIMD3<Double> {
+        let r = Double.pi / 180
+        let m = ((M.truncatingRemainder(dividingBy: 360) + 540).truncatingRemainder(dividingBy: 360) - 180) * r
+        var E = e > 0.8 ? (m < 0 ? -Double.pi : Double.pi) : m
+        for _ in 0..<30 { E -= (E - e * sin(E) - m) / (1 - e * cos(E)) }
+        let xp = a * (cos(E) - e), yp = a * sqrt(1 - e * e) * sin(E)
+        let (cw, sw, cO, sO, cI, sI) = (cos(peri * r), sin(peri * r), cos(node * r), sin(node * r), cos(i * r), sin(i * r))
+        return eclipticToEquatorial((cw * cO - sw * sO * cI) * xp + (-sw * cO - cw * sO * cI) * yp,
+                                    (cw * sO + sw * cO * cI) * xp + (-sw * sO + cw * cO * cI) * yp,
+                                    sw * sI * xp + cw * sI * yp)
+    }
+
+    /// Major moons: parent, name, orbit radius (km), period (days, negative for retrograde), note. Orbit sizes and periods
+    /// are measured; where each moon is along its orbit today is approximate, and the place card says so.
+    static let moons: [(String, String, Double, Double, String)] = [
+        ("Earth", "Moon", 384_400, 27.322, "Visited by 12 people, 1969–1972. Artemis is going back."),
+        ("Mars", "Phobos", 9_376, 0.3189, "Spirals slowly inward; in about 50 million years it breaks up into a ring."),
+        ("Mars", "Deimos", 23_463, 1.263, "The smaller, outer moon of Mars."),
+        ("Jupiter", "Io", 421_700, 1.769, "The most volcanic world known."),
+        ("Jupiter", "Europa", 671_034, 3.551, "An ocean under the ice. Europa Clipper arrives in 2030."),
+        ("Jupiter", "Ganymede", 1_070_412, 7.155, "The largest moon in the Solar System, bigger than Mercury."),
+        ("Jupiter", "Callisto", 1_882_709, 16.689, "The most cratered surface known."),
+        ("Saturn", "Mimas", 185_539, 0.942, "One giant crater, Herschel, makes it look like the Death Star."),
+        ("Saturn", "Enceladus", 237_948, 1.37, "Geysers of ocean water from its south pole feed Saturn's E ring."),
+        ("Saturn", "Tethys", 294_619, 1.888, "Almost pure water ice."),
+        ("Saturn", "Dione", 377_396, 2.737, "Bright ice cliffs on its trailing side."),
+        ("Saturn", "Rhea", 527_108, 4.518, "Saturn's second-largest moon."),
+        ("Saturn", "Titan", 1_221_870, 15.945, "Thick air and methane lakes. Huygens landed in 2005; Dragonfly follows."),
+        ("Saturn", "Iapetus", 3_560_820, 79.32, "One side as dark as coal, the other as bright as snow."),
+        ("Uranus", "Miranda", 129_390, 1.413, "Cliffs up to 20 km high."),
+        ("Uranus", "Ariel", 191_020, 2.52, "The brightest of Uranus's moons."),
+        ("Uranus", "Umbriel", 266_000, 4.144, "The darkest of Uranus's large moons."),
+        ("Uranus", "Titania", 435_910, 8.706, "The largest moon of Uranus."),
+        ("Uranus", "Oberon", 583_520, 13.463, "The outermost large moon of Uranus."),
+        ("Neptune", "Triton", 354_759, -5.877, "Orbits backwards: a captured Kuiper belt world, with nitrogen geysers."),
+        ("Neptune", "Nereid", 5_513_818, 360.1, "One of the most eccentric moon orbits known."),
+        ("Pluto", "Charon", 19_591, 6.387, "Half Pluto's size; the two orbit a point between them."),
+    ]
 
     // MARK: Frames
 
@@ -163,6 +212,67 @@ enum Flight {
 
     // MARK: Build
 
+    /// Asteroids, dwarf planets and comets from NASA/JPL's Small-Body Database (khensu-specs
+    /// design/nu-universes/small_bodies.py), the two belts as regions, then the moons.
+    static func smallBodies(into cat: inout Catalog, date: Date, bundle: Bundle) {
+        let jd = date.timeIntervalSince1970 / 86_400 + 2_440_587.5
+        guard let earth = cat.places.first(where: { $0.name == "Earth" })?.position,
+              let bd = try? Data(contentsOf: bundle.url(forResource: "bodies", withExtension: "json")!),
+              let json = try? JSONSerialization.jsonObject(with: bd) as? [String: Any],
+              let epoch = (json["epoch"] as? NSNumber)?.doubleValue, let bodies = json["bodies"] as? [[Any]] else { return }
+        let dt = jd - epoch
+        func advance(_ a: Double, _ M: Double) -> Double { M + 0.985_607_668_6 / pow(a, 1.5) * dt }
+        let toward = { (a: Double) in simd_normalize(earth) * a * au }
+        cat.places.append(Place(name: "Asteroid belt", position: toward(2.7), view: 9 * au, kind: "Region · 2.2–3.3 AU",
+                                note: "Between Mars and Jupiter. The dots are 4,000 real asteroids and 800 of Jupiter's Trojans, placed for today from NASA JPL orbits.",
+                                showWithin: 400 * au, order: 2.7))
+        cat.places.append(Place(name: "Kuiper belt", position: toward(42), view: 110 * au, kind: "Region · 30–50 AU",
+                                note: "The icy belt beyond Neptune, home of Pluto. The dots are 1,500 real objects from NASA JPL.", showWithin: 4000 * au, order: 42))
+        if let belt = try? Data(contentsOf: bundle.url(forResource: "belt", withExtension: "bin")!) {
+            let f = belt.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+            let colours: [SIMD3<Float>] = [[0.55, 0.5, 0.42], [0.62, 0.5, 0.36], [0.42, 0.55, 0.7]]
+            let pts = (0..<(f.count / 7)).map { i -> Point in
+                let v = (0..<7).map { Double(f[i * 7 + $0]) }
+                let p = kepler(a: v[0], e: v[1], i: v[2], node: v[3], peri: v[4], M: advance(v[0], v[5]))
+                return Point(position: SIMD3<Float>(p), absMag: 33.5, diameter: 1e-7, tint: colours[min(2, Int(v[6]))])
+            }
+            cat.layers.append(Layer(name: "belt", points: pts, limit: 6, exposure: 0))
+        }
+        var named: [Point] = []
+        for row in bodies {
+            guard let name = row[0] as? String, let kind = row[1] as? String, let note = row[8] as? String else { continue }
+            let v = (2...7).compactMap { (row[$0] as? NSNumber)?.doubleValue }
+            guard v.count == 6 else { continue }
+            let p = kepler(a: v[0], e: v[1], i: v[2], node: v[3], peri: v[4], M: advance(v[0], v[5]))
+            let r = simd_length(p) / au
+            let parent = kind.contains("near-Earth") ? "Near-Earth asteroids" : kind == "Comet" ? "Comets"
+                : kind.contains("asteroid belt") || kind == "Asteroid" ? "Asteroid belt" : "Kuiper belt"
+            named.append(Point(position: SIMD3<Float>(p), absMag: 31, diameter: 2e-7, tint: kind == "Comet" ? [0.6, 0.85, 1] : [0.85, 0.8, 0.7]))
+            cat.places.append(Place(name: name, position: p, view: max(0.02, r * 0.15) * au, kind: kind,
+                                    note: "\(note) \(r.formatted(.number.precision(.fractionLength(2)))) AU from the Sun today · NASA JPL elements",
+                                    showWithin: max(0.4, r * 0.6) * au, parent: parent))
+            cat.orbits.append(Orbit(name: name, points: (0...256).map { k in
+                SIMD3<Float>(kepler(a: v[0], e: v[1], i: v[2], node: v[3], peri: v[4], M: -180 + 360 * Double(k) / 256))
+            }, tint: kind == "Comet" ? [0.2, 0.32, 0.42] : [0.3, 0.27, 0.22]))
+        }
+        cat.layers.append(Layer(name: "small-bodies", points: named, limit: 6, exposure: 0))
+        var moonPoints: [Point] = []
+        for (parent, name, km, days, note) in moons {
+            guard let host = cat.places.first(where: { $0.name == parent }) else { continue }
+            var h = 0
+            for u in name.unicodeScalars { h = (h * 31 + Int(u.value)) % 360 }
+            let th = (Double(h) + 360 * (jd - 2_451_545) / days) * .pi / 180
+            let rAU = km / 149_597_870.7
+            let p = host.position + eclipticToEquatorial(rAU * cos(th), rAU * sin(th), 0)
+            moonPoints.append(Point(position: SIMD3<Float>(p), absMag: 31, diameter: 1e-7, tint: [0.8, 0.8, 0.8]))
+            let period = abs(days) < 2 ? "\((abs(days) * 24).formatted(.number.precision(.fractionLength(1)))) hours" : "\(abs(days).formatted(.number.precision(.fractionLength(1)))) days"
+            cat.places.append(Place(name: name, position: p, view: max(rAU * au * 0.8, 2e-10), kind: "Moon of \(parent)",
+                                    note: "\(note) Orbits \(Int(km).formatted()) km from \(parent) every \(period); where it is along that orbit today is approximate.",
+                                    showWithin: rAU * au * 60, parent: parent))
+        }
+        cat.layers.append(Layer(name: "moons", points: moonPoints, limit: 6, exposure: 0))
+    }
+
     static func load(date: Date = Date(), bundle: Bundle = .main) -> Catalog {
         var cat = Catalog()
         let t = (date.timeIntervalSince1970 / 86_400 + 2_440_587.5 - 2_451_545) / 36_525
@@ -175,10 +285,11 @@ enum Flight {
             planetPoints.append(Point(position: SIMD3<Float>(pos), absMag: 27, diameter: 3e-7, tint: p.tint))
             cat.places.append(Place(name: p.name, position: pos, view: p.el[0] * 0.6 * au, kind: "Planet",
                                     note: "\(p.el[0].formatted(.number.precision(.fractionLength(2)))) AU from the Sun · position for today, NASA JPL elements",
-                                    showWithin: p.el[0] * 80 * au))
+                                    showWithin: p.el[0] * 80 * au, order: p.el[0]))
             cat.orbits.append(Orbit(name: p.name, points: (0...256).map { k in SIMD3<Float>(position(of: p, t: t, meanAnomaly: -180 + 360 * Double(k) / 256)) }, tint: p.tint))
         }
         cat.layers.append(Layer(name: "planets", points: planetPoints, limit: 6, exposure: 0))
+        smallBodies(into: &cat, date: date, bundle: bundle)
 
         // Stars: HYG v4.1.
         if let data = try? Data(contentsOf: bundle.url(forResource: "stars", withExtension: "bin")!) {
