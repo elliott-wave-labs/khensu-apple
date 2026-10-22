@@ -38,6 +38,8 @@ struct MomentClip: Identifiable, Hashable, Sendable, Codable {
     var keyframes: [ClipKeyframe] = []
     /// The photo this clip was restyled or animated from, so it can go back.
     var originalName: String? = nil
+    /// The clip's file before a datamosh was baked in.
+    var moshSourceName: String? = nil
 
     init(id: UUID = UUID(), url: URL, duration: TimeInterval, isPhoto: Bool, inPoint: TimeInterval = 0, outDuration: TimeInterval? = nil) {
         self.id = id
@@ -61,12 +63,12 @@ struct MomentClip: Identifiable, Hashable, Sendable, Codable {
         c = MomentClip(url: url, duration: duration, isPhoto: isPhoto, inPoint: inPoint ?? self.inPoint, outDuration: outDuration ?? self.outDuration)
         c.speed = speed; c.muted = muted; c.volume = volume; c.reversed = reversed; c.reversedName = reversedName
         c.motion = motion; c.animIn = animIn; c.animOut = animOut; c.background = background; c.adjust = adjust; c.audioName = audioName
-        c.keyframes = keyframes; c.originalName = originalName
+        c.keyframes = keyframes; c.originalName = originalName; c.moshSourceName = moshSourceName
         return c
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, url, duration, isPhoto, inPoint, outDuration, speed, muted, volume, reversed, reversedName, motion, animIn, animOut, background, adjust, audioName, keyframes, originalName
+        case id, url, duration, isPhoto, inPoint, outDuration, speed, muted, volume, reversed, reversedName, motion, animIn, animOut, background, adjust, audioName, keyframes, originalName, moshSourceName
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -89,6 +91,7 @@ struct MomentClip: Identifiable, Hashable, Sendable, Codable {
         audioName = try c.decodeIfPresent(String.self, forKey: .audioName)
         keyframes = (try? c.decodeIfPresent([ClipKeyframe].self, forKey: .keyframes)) ?? []
         originalName = try c.decodeIfPresent(String.self, forKey: .originalName)
+        moshSourceName = try c.decodeIfPresent(String.self, forKey: .moshSourceName)
     }
 }
 

@@ -49,6 +49,13 @@ enum SelfTest {
             print("SELFTEST animate ok", r.depth.rawValue, String(format: "%.1fs", Date().timeIntervalSince(t0)))
             try? FileManager.default.removeItem(at: docs.appendingPathComponent("selftest-animated.mov"))
             try? FileManager.default.copyItem(at: r.url, to: docs.appendingPathComponent("selftest-animated.mov"))
+            let t2 = Date()
+            let still = MomentClip(url: photo, duration: 2, isPhoto: true)
+            let moshed = try await Datamosh.render(r.url, stuck: try await Datamosh.lastFrame(of: still), mode: .fromPrevious,
+                                                   start: 0, length: 2, amount: 4, leak: 0)
+            print("SELFTEST datamosh ok", String(format: "%.1fs", Date().timeIntervalSince(t2)))
+            try? FileManager.default.removeItem(at: docs.appendingPathComponent("selftest-moshed.mov"))
+            try? FileManager.default.copyItem(at: moshed, to: docs.appendingPathComponent("selftest-moshed.mov"))
         } catch { print("SELFTEST animate failed", error.localizedDescription) }
         for style in Restyle.Style.allCases {
             let t1 = Date()

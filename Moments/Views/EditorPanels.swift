@@ -401,6 +401,9 @@ private struct ClipEditor: View {
             if c.isPhoto || c.originalName != nil {
                 GeneratePanel(model: model, id: id)
             }
+            if !c.isPhoto {
+                DatamoshPanel(model: model, id: id)
+            }
             PanelSection(title: "adjust") {
                 ValueSlider(title: "Exposure", value: model.clip(id, \.adjust.exposure, fallback: 0), range: -1.5...1.5)
                 ValueSlider(title: "Contrast", value: model.clip(id, \.adjust.contrast, fallback: 1), range: 0.5...1.6)
@@ -444,6 +447,69 @@ private struct ClipEditor: View {
                 model.commit()
             }
         }
+    }
+}
+
+/// Datamosh baked into the clip on this device: the clip's motion drags old pixels instead of drawing new ones.
+private struct DatamoshPanel: View {
+    let model: EditorModel
+    let id: UUID
+    @State private var mode: Datamosh.Mode = .fromPrevious
+    @State private var length = 1.5
+    @State private var amount = 3.0
+    @State private var leak = 0.1
+
+    var body: some View {
+        let clips = model.project.clips
+        let i = clips.firstIndex { $0.id == id }
+        PanelSection(title: "datamosh") {
+            Chips(items: Datamosh.Mode.allCases, selection: $mode) { $0.label }
+            ValueSlider(title: "Length", value: $length, range: 0.3...4, step: 0.1, format: "%.1fs")
+            ValueSlider(title: "Amount", value: $amount, range: 1...8, step: 0.5, format: "%.1f×")
+            if mode == .melt { ValueSlider(title: "Leak", value: $leak, range: 0...0.5, format: "%.2f") }
+            if let i, clips[i].reversed {
+                Text("Turn reverse off to datamosh this clip.").font(.caption).foregroundStyle(.secondary)
+            } else if let i, mode == .fromPrevious, i == 0 {
+                Text("This is the first clip, so there is no clip before it to mosh from.").font(.caption).foregroundStyle(.secondary)
+            } else if let i {
+                WideButton(title: "Mosh", symbol: "square.stack.3d.forward.dottedline", prominent: true) { mosh(i) }
+            }
+            Text(mode.note + (mode == .fromPrevious ? "" : " Starts at the playhead when it is on this clip.") + " Made on this device with Vision motion, in 16-pixel blocks like a codec.")
+                .font(.caption).foregroundStyle(.tertiary)
+            if let i, let original = clips[i].moshSourceName {
+                WideButton(title: "Undo datamosh", symbol: "arrow.uturn.backward") { undo(original) }
+            }
+        }
+    }
+
+    private func mosh(_ i: Int) {
+        let c = model.project.clips[i]
+        let previous = i > 0 ? model.project.clips[i - 1] : nil
+        let m = mode, len = length, amt = amount, lk = m == .melt ? leak : 0
+        let start = m == .fromPrevious ? c.inPoint : c.inPoint + model.clipLocal(c) * max(0.1, c.speed)
+        model.progress = 0
+        model.run("Datamoshing on device…") {
+            var stuck: CGImage?
+            if m == .fromPrevious, let previous { stuck = try await Datamosh.lastFrame(of: previous) }
+            let url = try await Datamosh.render(c.url, stuck: stuck, mode: m, start: start, length: len, amount: amt, leak: lk) { f in
+                Task { @MainActor in model.progress = f }
+            }
+            let sound = c.audioName == nil ? try? await AudioFX.extract(from: c.url) : nil
+            guard let j = model.project.clips.firstIndex(where: { $0.id == id }) else { return }
+            model.project.clips[j].moshSourceName = model.project.clips[j].moshSourceName ?? c.url.lastPathComponent
+            model.project.clips[j].url = url
+            if let sound { model.project.clips[j].audioName = sound.lastPathComponent }
+            model.commit()
+            model.status = "\(m.label) datamosh baked in. Undo brings the clip back."
+        }
+    }
+
+    private func undo(_ original: String) {
+        guard let j = model.project.clips.firstIndex(where: { $0.id == id }) else { return }
+        model.project.clips[j].url = MediaImport.mediaDir.appendingPathComponent(original)
+        model.project.clips[j].moshSourceName = nil
+        model.commit()
+        model.status = "Datamosh removed."
     }
 }
 
