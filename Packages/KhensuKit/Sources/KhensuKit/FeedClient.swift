@@ -180,8 +180,9 @@ public enum FeedError: Error, Equatable, Sendable, LocalizedError {
 /// Client for the public feed API (`GET /v1/feed`, uploads, posts, reports).
 /// Request builders are separate from sending so they can be tested.
 public struct FeedClient: Sendable {
-    /// UserDefaults key holding the API base URL; empty means the feed is offline.
+    /// UserDefaults key holding the API base URL; unset means `publicAPI`, empty means the feed is offline.
     public static let defaultsKey = "KhensuFeedAPI"
+    public static let publicAPI = "https://khensu-feed-449257903768.us-central1.run.app"
     public static let pageSize = 20
 
     public let base: URL
@@ -192,9 +193,9 @@ public struct FeedClient: Sendable {
         self.session = session
     }
 
-    /// The configured client, or nil when `KhensuFeedAPI` is empty or not a URL.
+    /// The configured client, or nil when `KhensuFeedAPI` is set empty or is not a URL.
     public static func configured(_ defaults: UserDefaults = .standard) -> FeedClient? {
-        let raw = (defaults.string(forKey: defaultsKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = (defaults.string(forKey: defaultsKey) ?? publicAPI).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, let url = URL(string: raw), let scheme = url.scheme, ["https", "http"].contains(scheme), url.host() != nil
         else { return nil }
         return FeedClient(base: url)

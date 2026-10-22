@@ -124,10 +124,10 @@ struct FeedClientTests {
         #expect(throws: Never.self) { try FeedClient.check(status: 201) }
     }
 
-    @Test("An empty or invalid KhensuFeedAPI leaves the feed offline")
+    @Test("Unset KhensuFeedAPI uses the public feed; empty or invalid leaves it offline")
     func configuration() throws {
         let defaults = try #require(UserDefaults(suiteName: "feed-tests-\(UUID().uuidString)"))
-        #expect(FeedClient.configured(defaults) == nil)
+        #expect(FeedClient.configured(defaults)?.base.absoluteString == FeedClient.publicAPI)
         defaults.set("", forKey: FeedClient.defaultsKey)
         #expect(FeedClient.configured(defaults) == nil)
         defaults.set("not a url", forKey: FeedClient.defaultsKey)
