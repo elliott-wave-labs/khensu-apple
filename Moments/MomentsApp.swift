@@ -49,6 +49,15 @@ enum SelfTest {
             print("SELFTEST animate ok", r.depth.rawValue, String(format: "%.1fs", Date().timeIntervalSince(t0)))
             try? FileManager.default.removeItem(at: docs.appendingPathComponent("selftest-animated.mov"))
             try? FileManager.default.copyItem(at: r.url, to: docs.appendingPathComponent("selftest-animated.mov"))
+            for style in PaintStyle.Style.allCases {
+                let t3 = Date()
+                do {
+                    let painted = try await PaintStyle.render(r.url, style: style, from: 0, to: 99, brush: 0.4, strength: 0.9)
+                    print("SELFTEST paint clip ok", style.rawValue, String(format: "%.1fs", Date().timeIntervalSince(t3)))
+                    try? FileManager.default.removeItem(at: docs.appendingPathComponent("selftest-paint-\(style.rawValue).mov"))
+                    try? FileManager.default.copyItem(at: painted, to: docs.appendingPathComponent("selftest-paint-\(style.rawValue).mov"))
+                } catch { print("SELFTEST paint failed", style.rawValue, error.localizedDescription) }
+            }
             let t2 = Date()
             let still = MomentClip(url: photo, duration: 2, isPhoto: true)
             let moshed = try await Datamosh.render(r.url, stuck: try await Datamosh.lastFrame(of: still), mode: .fromPrevious,

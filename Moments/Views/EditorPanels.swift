@@ -404,6 +404,7 @@ private struct ClipEditor: View {
             if !c.isPhoto {
                 DatamoshPanel(model: model, id: id)
             }
+            PaintPanel(model: model, id: id)
             PanelSection(title: "adjust") {
                 ValueSlider(title: "Exposure", value: model.clip(id, \.adjust.exposure, fallback: 0), range: -1.5...1.5)
                 ValueSlider(title: "Contrast", value: model.clip(id, \.adjust.contrast, fallback: 1), range: 0.5...1.6)
@@ -510,6 +511,67 @@ private struct DatamoshPanel: View {
         model.project.clips[j].moshSourceName = nil
         model.commit()
         model.status = "Datamosh removed."
+    }
+}
+
+/// Painter styles from public-domain paintings, run on this device, for photos and clips.
+private struct PaintPanel: View {
+    let model: EditorModel
+    let id: UUID
+    @State private var style: PaintStyle.Style = .wave
+    @State private var strength = 0.85
+    @State private var brush = 0.4
+
+    var body: some View {
+        let clips = model.project.clips
+        let i = clips.firstIndex { $0.id == id }
+        PanelSection(title: "paint style") {
+            Chips(items: PaintStyle.Style.allCases, selection: $style) { $0.label }
+            ValueSlider(title: "Strength", value: $strength, range: 0.2...1, format: "%.2f")
+            ValueSlider(title: "Brush", value: $brush, range: 0...1, format: "%.2f")
+            if let i, clips[i].reversed {
+                Text("Turn reverse off to paint this clip.").font(.caption).foregroundStyle(.secondary)
+            } else if let i {
+                WideButton(title: clips[i].isPhoto ? "Paint photo" : "Paint clip", symbol: "paintbrush.pointed", prominent: true) { paint(i) }
+            }
+            Text("After \(style.after). A style network trained on that public-domain painting runs on this device; nothing is uploaded. Below full strength the original shows through.")
+                .font(.caption).foregroundStyle(.tertiary)
+            if let i, let original = clips[i].paintSourceName {
+                WideButton(title: "Undo paint", symbol: "arrow.uturn.backward") { undo(original) }
+            }
+        }
+    }
+
+    private func paint(_ i: Int) {
+        let c = model.project.clips[i]
+        let s = style, amt = strength, b = brush
+        model.progress = 0
+        model.run("Painting on device…") {
+            let url: URL
+            if c.isPhoto {
+                url = try await PaintStyle.paint(photo: c.url, style: s, brush: b, strength: amt)
+            } else {
+                let to = c.inPoint + c.outDuration * max(0.1, c.speed)
+                url = try await PaintStyle.render(c.url, style: s, from: c.inPoint, to: to, brush: b, strength: amt) { f in
+                    Task { @MainActor in model.progress = f }
+                }
+            }
+            let sound = !c.isPhoto && c.audioName == nil ? try? await AudioFX.extract(from: c.url) : nil
+            guard let j = model.project.clips.firstIndex(where: { $0.id == id }) else { return }
+            model.project.clips[j].paintSourceName = model.project.clips[j].paintSourceName ?? c.url.lastPathComponent
+            model.project.clips[j].url = url
+            if let sound { model.project.clips[j].audioName = sound.lastPathComponent }
+            model.commit()
+            model.status = "Painted as \(s.label). Undo brings the original back."
+        }
+    }
+
+    private func undo(_ original: String) {
+        guard let j = model.project.clips.firstIndex(where: { $0.id == id }) else { return }
+        model.project.clips[j].url = MediaImport.mediaDir.appendingPathComponent(original)
+        model.project.clips[j].paintSourceName = nil
+        model.commit()
+        model.status = "Paint removed."
     }
 }
 

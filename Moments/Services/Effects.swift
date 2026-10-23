@@ -35,12 +35,60 @@ enum Effects {
                 "inputRVector": CIVector(x: r, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: g, z: 0, w: 0),
                 "inputBVector": CIVector(x: 0, y: 0, z: b, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)])
         }
+        // Each part holds one channel, so the per-channel maximum recombines them exactly; addition brightens.
         func rgbSplit(_ px: Double) -> CIImage {
             let red = channel(image, r: 1, g: 0, b: 0).transformed(by: CGAffineTransform(translationX: px, y: 0))
             let green = channel(image, r: 0, g: 1, b: 0)
             let blue = channel(image, r: 0, g: 0, b: 1).transformed(by: CGAffineTransform(translationX: -px, y: 0))
-            return red.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: green])
-                .applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: blue]).cropped(to: rect)
+            return red.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: green])
+                .applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: blue]).cropped(to: rect)
+        }
+
+        func about(_ img: CIImage, scale s: Double, rotate r: Double = 0) -> CIImage {
+            img.transformed(by: CGAffineTransform(translationX: -W / 2, y: -H / 2)
+                .concatenating(CGAffineTransform(rotationAngle: r))
+                .concatenating(CGAffineTransform(scaleX: s, y: s))
+                .concatenating(CGAffineTransform(translationX: W / 2, y: H / 2)))
+        }
+        /// Splits red and blue away from green by scaling about the centre, like light through a prism.
+        func disperse(_ img: CIImage, _ d: Double) -> CIImage {
+            let src = img.clampedToExtent()
+            let red = channel(about(src, scale: 1 + d), r: 1, g: 0, b: 0)
+            let green = channel(src, r: 0, g: 1, b: 0)
+            let blue = channel(about(src, scale: 1 - d), r: 0, g: 0, b: 1)
+            return red.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: green])
+                .applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: blue]).cropped(to: rect)
+        }
+        /// Left half reflected onto the right, then the bottom half onto the top.
+        func mirror4(_ img: CIImage) -> CIImage {
+            let left = img.cropped(to: CGRect(x: 0, y: 0, width: W / 2, height: H))
+            let wide = left.transformed(by: CGAffineTransform(scaleX: -1, y: 1).concatenating(CGAffineTransform(translationX: W, y: 0))).composited(over: left)
+            let bottom = wide.cropped(to: CGRect(x: 0, y: 0, width: W, height: H / 2))
+            return bottom.transformed(by: CGAffineTransform(scaleX: 1, y: -1).concatenating(CGAffineTransform(translationX: 0, y: H))).composited(over: bottom)
+        }
+        /// A 30° wedge around `axis`, mirrored and turned twelve times: true six-fold symmetry over the whole frame.
+        func kaleidoscope(_ src: CIImage, axis: Double) -> CIImage {
+            func halfPlane(_ angle: Double, flip: Bool) -> CIImage {
+                let n = CGPoint(x: -sin(angle) * (flip ? -1 : 1), y: cos(angle) * (flip ? -1 : 1))
+                return gen("CILinearGradient", ["inputPoint0": c, "inputPoint1": CIVector(x: W / 2 + n.x, y: H / 2 + n.y),
+                                                "inputColor0": CIColor(red: 0, green: 0, blue: 0), "inputColor1": CIColor(red: 1, green: 1, blue: 1)]) ?? CIImage.empty()
+            }
+            let half = Double.pi / 12 + 0.004
+            let mask = halfPlane(axis - half, flip: false).applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: halfPlane(axis + half, flip: true)])
+            let wedge = src.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: CIImage.empty(), kCIInputMaskImageKey: mask])
+            let toOrigin = CGAffineTransform(translationX: -W / 2, y: -H / 2), back = CGAffineTransform(translationX: W / 2, y: H / 2)
+            let edge = 2 * (axis + half)
+            let reflect = CGAffineTransform(a: cos(edge), b: sin(edge), c: sin(edge), d: -cos(edge), tx: 0, ty: 0)
+            var acc = CIImage.empty()
+            for m in 0..<6 {
+                let turn = CGAffineTransform(rotationAngle: Double(m) * .pi / 3)
+                acc = wedge.transformed(by: toOrigin.concatenating(turn).concatenating(back)).composited(over: acc)
+                acc = wedge.transformed(by: toOrigin.concatenating(reflect).concatenating(turn).concatenating(back)).composited(over: acc)
+            }
+            return acc.composited(over: src).cropped(to: rect)
+        }
+        func glow(_ img: CIImage, _ r: Double, _ amount: Double) -> CIImage {
+            img.applyingFilter("CIBloom", parameters: [kCIInputRadiusKey: r * k, kCIInputIntensityKey: amount]).cropped(to: rect)
         }
 
         switch e.kind {
@@ -198,6 +246,50 @@ enum Effects {
             out = image.applyingFilter("CICrystallize", parameters: [kCIInputCenterKey: c, kCIInputRadiusKey: (8 + 30 * i) * k])
         case .fisheye:
             out = image.applyingFilter("CIBumpDistortion", parameters: [kCIInputCenterKey: c, kCIInputRadiusKey: W, kCIInputScaleKey: 0.9 * i])
+
+        // Prism
+        case .prism:
+            // The wedge runs down the long side: it reaches the frame's corners, and the lower half of most shots has the detail.
+            let axis = -Double.pi / 2 + 0.3 * sin(lt * 0.5 * sp)
+            let kal = kaleidoscope(about(image.clampedToExtent(), scale: 1.12 + 0.08 * sin(lt * 0.7 * sp), rotate: lt * 0.12 * sp), axis: axis)
+            out = mix(disperse(kal, 0.016 * i), 0.4 + 0.45 * i)
+        case .prismTunnel:
+            // Six nested copies, each half the size of the last; the phase wraps exactly one level so the zoom loops.
+            let ph = (lt * 0.35 * sp).truncatingRemainder(dividingBy: 1)
+            var acc = CIImage.empty()
+            for n in 0..<6 {
+                let depth = Double(n) - ph
+                let s = pow(2, -depth)
+                let frame = CGRect(x: W / 2 * (1 - s), y: H / 2 * (1 - s), width: W * s, height: H * s)
+                let layer = about(image.clampedToExtent(), scale: s, rotate: depth * 0.14)
+                    .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -0.18 * max(0, depth)])
+                acc = layer.cropped(to: frame).composited(over: acc)
+            }
+            out = mix(glow(disperse(mirror4(acc.cropped(to: rect)), 0.012 * i), 16, 0.15 * i), 0.5 + 0.45 * i)
+        case .facets:
+            if let noise = gen("CIRandomGenerator", [:]) {
+                // Each crystal cell picks one of six slightly turned copies, so every facet shows the clip from its own angle.
+                let cells = noise.transformed(by: CGAffineTransform(translationX: lt * 24 * sp * k, y: lt * 14 * sp * k))
+                    .applyingFilter("CICrystallize", parameters: [kCIInputRadiusKey: 70 * k, kCIInputCenterKey: c]).cropped(to: rect)
+                let value = cells.applyingFilter("CIMaximumComponent")
+                let src = image.clampedToExtent()
+                var acc = image
+                for j in 1..<6 {
+                    let f = Double(j)
+                    let pane = about(src, scale: 1 + 0.08 * f * i, rotate: (rnd(f) - 0.5) * 0.2 * i)
+                        .transformed(by: CGAffineTransform(translationX: (rnd(f + 3) - 0.5) * 140 * i * k, y: (rnd(f + 7) - 0.5) * 140 * i * k))
+                        .applyingFilter("CIHueAdjust", parameters: [kCIInputAngleKey: (rnd(f + 11) - 0.5) * 0.5 * i])
+                    let mask = value.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.25 + 0.5 * f / 6])
+                    acc = pane.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: acc, kCIInputMaskImageKey: mask]).cropped(to: rect)
+                }
+                let seams = cells.applyingFilter("CIEdges", parameters: [kCIInputIntensityKey: 3]).applyingFilter("CIMaximumComponent")
+                    .applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0.5 * i)])
+                out = seams.cropped(to: rect).applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: disperse(acc, 0.008 * i)])
+            }
+        case .triangles:
+            let tri = image.applyingFilter("CITriangleKaleidoscope", parameters: ["inputPoint": c, "inputSize": 460 * k, "inputRotation": lt * 0.2 * sp, "inputDecay": 0.85])
+                .cropped(to: rect)
+            out = mix(disperse(tri, 0.012 * i), 0.45 + 0.45 * i)
 
         // Blur
         case .blurIn:

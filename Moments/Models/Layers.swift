@@ -175,7 +175,7 @@ enum Keyframes {
 // MARK: - Effects
 
 enum EffectGroup: String, CaseIterable, Identifiable, Codable, Sendable {
-    case motion, light, color, retro, distort, blur
+    case motion, light, color, retro, distort, prism, blur
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
 }
@@ -191,6 +191,8 @@ enum EffectKind: String, CaseIterable, Identifiable, Codable, Sendable {
     case rgbSplit, glitch, grain, vhsLines, halftone, letterbox, vignette, comic, dots
     // distort
     case mirror, mirrorVertical, quad, kaleidoscope, twirl, bulge, pinch, pixelate, hexagon, crystal, fisheye
+    // prism
+    case prism, prismTunnel, facets, triangles
     // blur
     case blurIn, zoomBlur, motionBlur, dreamy, tiltShift, sharpen
 
@@ -210,6 +212,7 @@ enum EffectKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .mirror: "Mirror"; case .mirrorVertical: "Mirror vertical"; case .quad: "Quad"; case .kaleidoscope: "Kaleidoscope"
         case .twirl: "Twirl"; case .bulge: "Bulge"; case .pinch: "Pinch"; case .pixelate: "Pixelate"; case .hexagon: "Hexagons"
         case .crystal: "Crystal"; case .fisheye: "Fisheye"
+        case .prism: "Prism glass"; case .prismTunnel: "Prism tunnel"; case .facets: "Glass facets"; case .triangles: "Triangles"
         case .blurIn: "Blur in"; case .zoomBlur: "Zoom blur"; case .motionBlur: "Motion blur"; case .dreamy: "Dreamy"
         case .tiltShift: "Tilt-shift"; case .sharpen: "Sharpen"
         }
@@ -222,6 +225,7 @@ enum EffectKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .noir, .chrome, .faded, .instant, .tonal, .sepia, .invert, .rainbowShift, .thermal, .duotone, .posterize, .warmth, .cool, .tealOrange: .color
         case .rgbSplit, .glitch, .grain, .vhsLines, .halftone, .letterbox, .vignette, .comic, .dots: .retro
         case .mirror, .mirrorVertical, .quad, .kaleidoscope, .twirl, .bulge, .pinch, .pixelate, .hexagon, .crystal, .fisheye: .distort
+        case .prism, .prismTunnel, .facets, .triangles: .prism
         case .blurIn, .zoomBlur, .motionBlur, .dreamy, .tiltShift, .sharpen: .blur
         }
     }
@@ -229,7 +233,7 @@ enum EffectKind: String, CaseIterable, Identifiable, Codable, Sendable {
     var symbol: String {
         switch group {
         case .motion: "move.3d"; case .light: "sun.max"; case .color: "paintpalette"
-        case .retro: "tv"; case .distort: "circle.hexagongrid"; case .blur: "drop"
+        case .retro: "tv"; case .distort: "circle.hexagongrid"; case .prism: "rhombus"; case .blur: "drop"
         }
     }
 }
