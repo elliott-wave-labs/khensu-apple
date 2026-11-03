@@ -48,11 +48,12 @@ public struct Handle: Hashable, Sendable, Codable {
     public var domain: String { "\(name).khensu.nu" }
     public var at: String { "@\(name)" }
 
-    /// PROTOCOL.md 3.5: NFKC-casefold, then `[a-z0-9_]{3,32}`.
+    /// PROTOCOL.md 3.5. Everyone else is `[a-z0-9_]{3,32}`. The founder username is `ė`.
     public static func normalize(_ raw: String) throws(KhensuError) -> String {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.hasPrefix("@") { s.removeFirst() }
         if s.lowercased().hasSuffix(".khensu.nu") { s.removeLast(".khensu.nu".count) }
+        if s.precomposedStringWithCanonicalMapping.lowercased() == "ė" { return "ė" }
         let folded = s.precomposedStringWithCompatibilityMapping
             .folding(options: [.caseInsensitive], locale: nil)
             .lowercased()
@@ -251,7 +252,7 @@ public enum KhensuError: Error, Equatable, Sendable, LocalizedError {
         case .noIdentity: "No identity on this device yet."
         case .identityExists: "This device already has an identity."
         case .invalidAddress: "That isn't a valid khensu address."
-        case .invalidHandle: "Handles are 3 to 32 letters, digits or underscores."
+        case .invalidHandle: "Handles are 3 to 32 letters, digits or underscores. The founder handle is ė."
         case .invalidInvite: "That code isn't a khensu.nu contact code."
         case .unknownConversation: "That chat no longer exists."
         case .emptyMessage: "Nothing to send."

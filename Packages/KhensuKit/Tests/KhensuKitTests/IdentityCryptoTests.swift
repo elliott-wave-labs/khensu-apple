@@ -41,7 +41,11 @@ struct EncodingTests {
         #expect(try Handle("ana_88.khensu.nu").name == "ana_88")
         #expect(try Handle("ＡＮＡ").name == "ana") // fullwidth → NFKC
         #expect(try Handle("thoth").domain == "thoth.khensu.nu")
-        for bad in ["ab", "has space", "dash-ed", String(repeating: "a", count: 33), "émile"] {
+        #expect(try Handle("ė").name == "ė")
+        #expect(try Handle("Ė").name == "ė")
+        #expect(try Handle("e\u{0307}").name == "ė")
+        #expect(try Handle("@ė.khensu.nu").domain == "ė.khensu.nu")
+        for bad in ["ab", "e", "has space", "dash-ed", String(repeating: "a", count: 33), "émile", "e@khensu.nu"] {
             #expect(throws: KhensuError.invalidHandle, "\(bad)") { try Handle(bad) }
         }
     }
